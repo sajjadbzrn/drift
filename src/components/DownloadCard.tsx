@@ -123,6 +123,7 @@ function SpeedSpark({ history }: { history: number[] }) {
         ).toFixed(1)}`,
     )
     .join(" ");
+  const area = `${pts} ${w - 1},${h} 1,${h}`;
   return (
     <svg
       className="spark"
@@ -131,6 +132,7 @@ function SpeedSpark({ history }: { history: number[] }) {
       viewBox={`0 0 ${w} ${h}`}
       aria-hidden
     >
+      <polygon points={area} fill="currentColor" opacity="0.16" />
       <polyline
         points={pts}
         fill="none"
@@ -180,7 +182,12 @@ export function DownloadCard({
   return (
     <div
       className={`card${failed ? " card-failed" : ""}`}
-      style={{ animationDelay: `${Math.min(index ?? 0, 10) * 32}ms` }}
+      style={
+        {
+          animationDelay: `${Math.min(index ?? 0, 10) * 32}ms`,
+          "--kind": color,
+        } as React.CSSProperties
+      }
       onContextMenu={(e) => onContext(d, e)}
     >
       <div

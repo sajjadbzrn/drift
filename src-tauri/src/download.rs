@@ -261,6 +261,7 @@ impl DownloadManager {
 
         let limit = speed_limit.unwrap_or(settings.default_speed_limit);
         let now = now_millis();
+        let priority = self.next_priority();
         let info = DownloadInfo {
             id: Uuid::new_v4().to_string(),
             url: url.clone(),
@@ -280,6 +281,7 @@ impl DownloadManager {
             retries: 0,
             speed_limit: limit,
             completed_at: None,
+            priority,
         };
         let entry = Arc::new(DownloadEntry {
             info: Mutex::new(info),
@@ -349,6 +351,74 @@ impl DownloadManager {
         self.persist();
         self.emit_list();
         self.spawn_worker(entry);
+        Ok(())
+    }
+
+    pub fn pause_all(&self) -> usize {
+        let entries: Vec<Arc<DownloadEntry>> = self.entries.lock().unwrap().values().cloned().collect();
+        let mut n = 0;
+        for e in entries {
+            let status = e.info.lock().unwrap().status.clone();
+            if matches!(
+                status.as_str(),
+                status::QUEUED | status::DOWNLOADING | status::RETRYING
+            ) {
+                e.action.store(1, Ordering::SeqCst);
+                n += 1;
+            }
+        }
+        n
+    }
+
+    pub fn resume_all(self: &Arc<Self>) -> usize {
+        let entries: Vec<Arc<DownloadEntry>> = self.entries.lock().unwrap().values().cloned().collect();
+        let mut n = 0;
+        for e in entries {
+            let status = e.info.lock().unwrap().status.clone();
+            if status == status::PAUSED {
+                e.action.store(0, Ordering::SeqCst);
+                {
+                    let mut info = e.info.lock().unwrap();
+                    info.status = status::QUEUED.into();
+                    info.error = None;
+                    info.retries = 0;
+                    info.updated_at = now_millis();
+                }
+                self.spawn_worker(e);
+                n += 1;
+            }
+        }
+        self.persist();
+        self.emit_list();
+        n
+    }
+
+    /// Move `id` to `to_index` in the queue (0 = front) and renumber every
+    /// entry's priority so the frontend gets a stable, persisted ordering.
+    pub fn reorder(&self, id: &str, to_index: usize) -> Result<(), String> {
+        let entries = self.entries.lock().unwrap();
+        let mut order: Vec<DownloadInfo> = entries
+            .values()
+            .map(|e| e.info.lock().unwrap().clone())
+            .collect();
+        order.sort_by(|a, b| {
+            a.priority.cmp(&b.priority).then(b.created_at.cmp(&a.created_at))
+        });
+        let pos = order
+            .iter()
+            .position(|d| d.id == id)
+            .ok_or_else(|| "Download not found".to_string())?;
+        let entry = order.remove(pos);
+        let to = to_index.min(order.len());
+        order.insert(to, entry);
+        for (i, d) in order.iter().enumerate() {
+            if let Some(e) = entries.get(&d.id) {
+                e.info.lock().unwrap().priority = i as i64;
+            }
+        }
+        drop(entries);
+        self.persist();
+        self.emit_list();
         Ok(())
     }
 
@@ -445,16 +515,18 @@ impl DownloadManager {
             let outcome = self.attempt(entry.clone()).await;
             match outcome {
                 AttemptOutcome::Done => {
-                    let mut info = entry.info.lock().unwrap();
-                    info.status = status::COMPLETED.into();
-                    info.received = info.total_size.unwrap_or(info.received);
-                    info.speed = 0.0;
-                    info.error = None;
-                    info.completed_at = Some(now_millis());
-                    info.updated_at = now_millis();
-                    drop(info);
+                    {
+                        let mut info = entry.info.lock().unwrap();
+                        info.status = status::COMPLETED.into();
+                        info.received = info.total_size.unwrap_or(info.received);
+                        info.speed = 0.0;
+                        info.error = None;
+                        info.completed_at = Some(now_millis());
+                        info.updated_at = now_millis();
+                    }
                     self.persist();
                     self.emit_list();
+                    self.notify_complete(&entry);
                     break;
                 }
                 AttemptOutcome::Paused => {
@@ -496,14 +568,16 @@ impl DownloadManager {
                         tokio::time::sleep(backoff).await;
                         continue;
                     }
-                    let mut info = entry.info.lock().unwrap();
-                    info.status = status::FAILED.into();
-                    info.speed = 0.0;
-                    info.error = Some(msg.clone());
-                    info.updated_at = now_millis();
-                    drop(info);
+                    {
+                        let mut info = entry.info.lock().unwrap();
+                        info.status = status::FAILED.into();
+                        info.speed = 0.0;
+                        info.error = Some(msg.clone());
+                        info.updated_at = now_millis();
+                    }
                     self.persist();
                     self.emit_list();
+                    self.notify_failed(&entry, &msg);
                     break;
                 }
                 // attempt() resolves range fallbacks internally; this is a safety net.
@@ -880,6 +954,43 @@ impl DownloadManager {
     }
 
     // --------------------------------------------------------------- helpers
+
+    /// Lowest priority in the queue minus one, so brand-new downloads appear
+    /// on top (matching the previous newest-first ordering) while still being
+    /// stable across reorders.
+    fn next_priority(&self) -> i64 {
+        let entries = self.entries.lock().unwrap();
+        entries
+            .values()
+            .map(|e| e.info.lock().unwrap().priority)
+            .min()
+            .map(|p| p.saturating_sub(1))
+            .unwrap_or(0)
+    }
+
+    fn notify_complete(&self, entry: &DownloadEntry) {
+        use tauri_plugin_notification::NotificationExt;
+        let filename = entry.info.lock().unwrap().filename.clone();
+        let _ = self
+            .app
+            .notification()
+            .builder()
+            .title("Download complete")
+            .body(filename)
+            .show();
+    }
+
+    fn notify_failed(&self, entry: &DownloadEntry, msg: &str) {
+        use tauri_plugin_notification::NotificationExt;
+        let filename = entry.info.lock().unwrap().filename.clone();
+        let _ = self
+            .app
+            .notification()
+            .builder()
+            .title("Download failed")
+            .body(format!("{filename} — {msg}"))
+            .show();
+    }
 
     fn effective_limit(&self, speed_limit: u64) -> u64 {
         let settings = self.settings.lock().unwrap();

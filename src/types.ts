@@ -33,6 +33,8 @@ export interface DownloadInfo {
   retries: number;
   speedLimit: number;
   completedAt: number | null;
+  /** Queue position: lower = closer to the front (0 = first). */
+  priority: number;
 }
 
 export type Theme = "system" | "dark" | "light";
@@ -49,6 +51,10 @@ export interface AppSettings {
   maxRetries: number;
   deleteWithRemove: boolean;
   lastSaveDir: string | null;
+  /** Skip the save dialog and write straight into the chosen folder. */
+  autoSave: boolean;
+  /** Closing the window hides to tray; downloads keep running. */
+  closeToTray: boolean;
 }
 
 export interface UrlMeta {

@@ -226,3 +226,37 @@ export const InboxIcon = (p: P) => (
     <path d="M4 13.5 5.5 5.5A1.5 1.5 0 0 1 7 4.5h10a1.5 1.5 0 0 1 1.5 1l1.5 8" />
   </svg>
 );
+
+export const ChevronUpIcon = (p: P) => (
+  <svg {...base(p)}>
+    <path d="m6 14 6-6 6 6" />
+  </svg>
+);
+
+export const ChevronDownIcon = (p: P) => (
+  <svg {...base(p)}>
+    <path d="m6 10 6 6 6-6" />
+  </svg>
+);
+
+export const ChevronsUpIcon = (p: P) => (
+  <svg {...base(p)}>
+    <path d="m7 11 5-5 5 5" />
+    <path d="m7 19 5-5 5 5" />
+  </svg>
+);
+
+export const PauseAllIcon = (p: P) => (
+  <svg {...base(p)}>
+    <rect x="4" y="5" width="3.5" height="14" rx="1" />
+    <rect x="10.5" y="5" width="3.5" height="14" rx="1" />
+    <path d="M19 6v12" />
+  </svg>
+);
+
+export const PlayAllIcon = (p: P) => (
+  <svg {...base(p)}>
+    <path d="m6 5.5 8 6.5-8 6.5z" />
+    <path d="M18 6v12" />
+  </svg>
+);

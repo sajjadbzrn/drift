@@ -14,6 +14,10 @@ export const api = {
   retry: (id: string) => invoke<void>("retry_download", { id }),
   cancel: (id: string) => invoke<void>("cancel_download", { id }),
   remove: (id: string) => invoke<void>("remove_download", { id }),
+  pauseAll: () => invoke<number>("pause_all_downloads"),
+  resumeAll: () => invoke<number>("resume_all_downloads"),
+  reorder: (id: string, toIndex: number) =>
+    invoke<void>("reorder_download", { id, toIndex }),
   getDownloads: () => invoke<DownloadInfo[]>("get_downloads"),
   getSettings: () => invoke<AppSettings>("get_settings"),
   setSettings: (settings: AppSettings) => invoke<void>("set_settings", { settings }),

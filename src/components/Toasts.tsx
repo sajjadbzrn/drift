@@ -32,6 +32,7 @@ export function ToastStack({
           >
             <XIcon width={13} height={13} />
           </button>
+          <span className="toast-timer" aria-hidden />
         </div>
       ))}
     </div>

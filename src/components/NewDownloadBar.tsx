@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { save, open } from "@tauri-apps/plugin-dialog";
 import { downloadDir } from "@tauri-apps/api/path";
+import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { getCurrent } from "@tauri-apps/plugin-deep-link";
 import { api } from "../lib/ipc";
 import type { AppSettings } from "../types";
 import { formatBytes, looksLikeUrl } from "../lib/format";
@@ -10,6 +13,32 @@ import type { ClipboardHit } from "../hooks/useClipboard";
 function joinPath(dir: string, name: string): string {
   const sep = navigator.userAgent.includes("Windows") ? "\\" : "/";
   return dir.endsWith(sep) ? dir + name : dir + sep + name;
+}
+
+/** Pull every http(s) URL out of a pasted blob of text (one per line). */
+function detectUrls(text: string): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const token of text.split(/\s+/)) {
+    const u = token.trim();
+    if (u && looksLikeUrl(u) && !seen.has(u)) {
+      seen.add(u);
+      out.push(u);
+    }
+  }
+  return out;
+}
+
+/** Parse drift://add?url=<encoded> deep links. */
+function parseDeepLink(raw: string): string | null {
+  try {
+    const u = new URL(raw);
+    if (u.protocol !== "drift:") return null;
+    const target = u.searchParams.get("url");
+    return target && looksLikeUrl(target) ? target : null;
+  } catch {
+    return null;
+  }
 }
 
 export function NewDownloadBar({
@@ -31,6 +60,7 @@ export function NewDownloadBar({
   const [folder, setFolder] = useState<string | null>(null);
   const [limit, setLimit] = useState("");
   const [probing, setProbing] = useState(false);
+  const [batch, setBatch] = useState<string[] | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -80,13 +110,19 @@ export function NewDownloadBar({
     setProbing(true);
     try {
       const meta = await api.probeUrl(clean);
-      const baseDir = folder ?? "";
-      const defaultPath = joinPath(baseDir, meta.filename || "download");
-      const chosen = await save({
-        title: "Save download as",
-        defaultPath,
-      });
-      if (typeof chosen !== "string") return; // user cancelled
+      let chosen: string;
+      if (settings.autoSave && folder) {
+        // Auto-save: skip the dialog, let the backend pick a unique name.
+        chosen = joinPath(folder, meta.filename || "download");
+      } else {
+        const baseDir = folder ?? "";
+        const r = await save({
+          title: "Save download as",
+          defaultPath: joinPath(baseDir, meta.filename || "download"),
+        });
+        if (typeof r !== "string") return; // user cancelled
+        chosen = r;
+      }
       onStart(clean, chosen, limitBytes());
       setUrl("");
       setLimit("");
@@ -98,10 +134,65 @@ export function NewDownloadBar({
     }
   };
 
+  const downloadAll = async (urls: string[]) => {
+    for (const u of urls) {
+      await startFlow(u);
+    }
+    setBatch(null);
+    setUrl("");
+  };
+
   const onSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     void startFlow(url);
   };
+
+  const onInputChange = (v: string) => {
+    setUrl(v);
+    const urls = detectUrls(v);
+    setBatch(urls.length > 1 ? urls : null);
+  };
+
+  // Receive links handed off from the browser via drift://add?url=…
+  const startFlowRef = useRef(startFlow);
+  useEffect(() => {
+    startFlowRef.current = startFlow;
+  });
+
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | null = null;
+    const handle = (raw: string) => {
+      const u = parseDeepLink(raw);
+      if (!u) return;
+      try {
+        void getCurrentWindow().show();
+        void getCurrentWindow().setFocus();
+      } catch {
+        /* window API unavailable */
+      }
+      void startFlowRef.current(u);
+    };
+    (async () => {
+      try {
+        unlisten = await listen<string>("drift://incoming", (e) => {
+          if (!disposed) handle(e.payload);
+        });
+        // Cold start: the launch URL arrives before this listener is ready,
+        // so pick it up explicitly once, then rely on live events.
+        const initial = await getCurrent();
+        if (initial && !disposed) {
+          for (const u of initial) handle(u);
+        }
+      } catch {
+        // running in a plain browser — no deep-link events
+      }
+    })();
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, []);
 
   return (
     <div className="new-download">
@@ -130,6 +221,62 @@ export function NewDownloadBar({
         </div>
       )}
 
+      {batch && (
+        <div className="batch-card">
+          <div className="batch-head">
+            <span className="batch-title">
+              {batch.length} URLs detected
+            </span>
+            <button
+              className="icon-btn"
+              onClick={() => {
+                setBatch(null);
+                setUrl("");
+              }}
+              title="Clear"
+              aria-label="Clear batch"
+            >
+              <XIcon width={15} height={15} />
+            </button>
+          </div>
+          <div className="batch-list">
+            {batch.slice(0, 6).map((u) => (
+              <div className="batch-row" key={u}>
+                <span className="batch-url" title={u}>
+                  {u}
+                </span>
+                <button
+                  className="icon-btn"
+                  onClick={() =>
+                    setBatch((b) => {
+                      const next = b ? b.filter((x) => x !== u) : b;
+                      return next && next.length > 1 ? next : null;
+                    })
+                  }
+                  title="Skip this URL"
+                  aria-label="Skip this URL"
+                >
+                  <XIcon width={13} height={13} />
+                </button>
+              </div>
+            ))}
+            {batch.length > 6 && (
+              <span className="batch-more">+{batch.length - 6} more…</span>
+            )}
+          </div>
+          <div className="batch-actions">
+            <button
+              className="btn btn-primary btn-sm"
+              disabled={probing}
+              onClick={() => void downloadAll(batch)}
+            >
+              <ArrowDownIcon width={14} height={14} />
+              {probing ? "Adding…" : `Download all (${batch.length})`}
+            </button>
+          </div>
+        </div>
+      )}
+
       <form className="download-bar" onSubmit={onSubmit}>
         <div className="download-bar-main">
           <input
@@ -137,8 +284,8 @@ export function NewDownloadBar({
             ref={inputRef}
             className="url-input"
             value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            placeholder="Paste a link to download…"
+            onChange={(e) => onInputChange(e.target.value)}
+            placeholder="Paste a link to download… (one per line for batch)"
             spellCheck={false}
             autoFocus
           />
@@ -152,14 +299,16 @@ export function NewDownloadBar({
             inputMode="decimal"
           />
           <span className="limit-unit">MB/s</span>
-          <button className="btn btn-primary" type="submit" disabled={probing}>
-            {probing ? (
-              <span className="spinner spinner-sm" />
-            ) : (
-              <ArrowDownIcon width={15} height={15} />
-            )}
-            {probing ? "Checking…" : "Download"}
-          </button>
+          {!batch && (
+            <button className="btn btn-primary" type="submit" disabled={probing}>
+              {probing ? (
+                <span className="spinner spinner-sm" />
+              ) : (
+                <ArrowDownIcon width={15} height={15} />
+              )}
+              {probing ? "Checking…" : "Download"}
+            </button>
+          )}
         </div>
         <div className="download-bar-sub">
           <button
@@ -179,7 +328,9 @@ export function NewDownloadBar({
           <span className="bar-hint">
             {limitBytes()
               ? `Capped at ${formatBytes(limitBytes()!)}/s`
-              : "No speed limit"}
+              : settings.autoSave
+                ? "Auto-saving to folder"
+                : "No speed limit"}
           </span>
         </div>
       </form>

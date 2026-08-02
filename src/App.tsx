@@ -1,7 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { confirm } from "@tauri-apps/plugin-dialog";
+import {
+  isPermissionGranted,
+  requestPermission,
+} from "@tauri-apps/plugin-notification";
 import { api } from "./lib/ipc";
 import type { DownloadInfo, Filter, Toast } from "./types";
 import { formatSpeed, isActive } from "./lib/format";
@@ -17,6 +21,9 @@ import { ContextMenu, type MenuItem } from "./components/ContextMenu";
 import { ToastStack, pushToast, dismissToast } from "./components/Toasts";
 import {
   BoltIcon,
+  ChevronDownIcon,
+  ChevronsUpIcon,
+  ChevronUpIcon,
   CopyIcon,
   ExternalIcon,
   FolderIcon,
@@ -51,6 +58,7 @@ interface CtxState {
   x: number;
   y: number;
   d: DownloadInfo;
+  index: number;
 }
 
 function App() {
@@ -63,6 +71,7 @@ function App() {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [ctx, setCtx] = useState<CtxState | null>(null);
   const clipboard = useClipboard(true);
+  const peakRef = useRef(0);
 
   const resolvedTheme: "dark" | "light" =
     settings.theme === "system" ? (systemDark ? "dark" : "light") : settings.theme;
@@ -75,6 +84,19 @@ function App() {
     (msg: string, kind: Toast["kind"] = "info") => pushToast(setToasts, msg, kind),
     [],
   );
+
+  // Ask for native notification permission once (Windows grants it silently).
+  useEffect(() => {
+    void (async () => {
+      try {
+        if (!(await isPermissionGranted())) {
+          await requestPermission();
+        }
+      } catch {
+        // not running inside Tauri — ignore
+      }
+    })();
+  }, []);
 
   // Ctrl/Cmd+L focuses the URL bar
   useEffect(() => {
@@ -108,9 +130,24 @@ function App() {
         .reduce((s, d) => s + d.speed, 0),
     [downloads],
   );
+  if (totalSpeed > peakRef.current) peakRef.current = totalSpeed;
+
+  const totalBytes = useMemo(
+    () => downloads.reduce((s, d) => s + d.received, 0),
+    [downloads],
+  );
+
+  // Queue order — must match the backend's reorder sort exactly.
+  const sortedAll = useMemo(
+    () =>
+      [...downloads].sort(
+        (a, b) => a.priority - b.priority || b.createdAt - a.createdAt,
+      ),
+    [downloads],
+  );
 
   const filtered = useMemo(() => {
-    let list = [...downloads].sort((a, b) => b.createdAt - a.createdAt);
+    let list = sortedAll;
     if (filter === "active")
       list = list.filter((d) => d.status === "queued" || d.status === "downloading" || d.status === "retrying");
     else if (filter === "completed") list = list.filter((d) => d.status === "completed");
@@ -124,7 +161,7 @@ function App() {
           d.filename.toLowerCase().includes(q) || d.url.toLowerCase().includes(q),
       );
     return list;
-  }, [downloads, filter, query]);
+  }, [sortedAll, filter, query]);
 
   const existingUrls = useMemo(
     () => new Set(downloads.map((d) => d.url)),
@@ -235,10 +272,14 @@ function App() {
     [notify],
   );
 
-  const onCardContext = useCallback((d: DownloadInfo, e: React.MouseEvent) => {
-    e.preventDefault();
-    setCtx({ x: e.clientX, y: e.clientY, d });
-  }, []);
+  const onCardContext = useCallback(
+    (d: DownloadInfo, e: React.MouseEvent) => {
+      e.preventDefault();
+      const index = sortedAll.findIndex((x) => x.id === d.id);
+      setCtx({ x: e.clientX, y: e.clientY, d, index });
+    },
+    [sortedAll],
+  );
 
   const closeCtx = useCallback(() => setCtx(null), []);
 
@@ -246,6 +287,35 @@ function App() {
     if (!ctx) return [];
     const d = ctx.d;
     const items: MenuItem[] = [];
+    const idx = ctx.index;
+    const last = downloads.length - 1;
+    // Queue controls — reorder within the full (priority-sorted) queue.
+    if (idx > 0) {
+      items.push({
+        label: "Move up",
+        icon: <ChevronUpIcon width={14} height={14} />,
+        onClick: () => void runAction(() => api.reorder(d.id, idx - 1), ""),
+      });
+    }
+    if (idx < last) {
+      items.push({
+        label: "Move down",
+        icon: <ChevronDownIcon width={14} height={14} />,
+        onClick: () => void runAction(() => api.reorder(d.id, idx + 1), ""),
+      });
+    }
+    if (idx > 0 && (d.status === "queued" || d.status === "paused")) {
+      items.push({
+        label: "Start now",
+        icon: <ChevronsUpIcon width={14} height={14} />,
+        onClick: () =>
+          void runAction(async () => {
+            await api.reorder(d.id, 0);
+            if (d.status === "paused") await api.resume(d.id);
+          }, ""),
+      });
+    }
+    if (items.length > 0) items.push({ separator: true });
     if (d.status === "downloading" || d.status === "retrying") {
       items.push({ label: "Pause", icon: <PauseIcon width={14} height={14} />, onClick: () => void runAction(() => api.pause(d.id), "") });
       items.push({ label: "Cancel", danger: true, icon: <TrashIcon width={14} height={14} />, onClick: () => void runAction(() => api.cancel(d.id), "") });
@@ -263,7 +333,7 @@ function App() {
     items.push({ separator: true });
     items.push({ label: "Remove", danger: true, icon: <TrashIcon width={14} height={14} />, onClick: () => void removeDownload(d) });
     return items;
-  }, [ctx, runAction, onOpenFile, onOpenFolder, onCopy, removeDownload]);
+  }, [ctx, downloads.length, runAction, onOpenFile, onOpenFolder, onCopy, removeDownload]);
 
   return (
     <div className="app">
@@ -274,12 +344,16 @@ function App() {
           onFilter={setFilter}
           counts={counts}
           totalSpeed={totalSpeed}
+          peakSpeed={peakRef.current}
+          totalBytes={totalBytes}
           activeCount={counts.active}
           theme={resolvedTheme}
           onToggleTheme={() =>
             update({ theme: resolvedTheme === "dark" ? "light" : "dark" })
           }
           onOpenSettings={() => setSettingsOpen(true)}
+          onPauseAll={() => void runAction(() => api.pauseAll(), "")}
+          onResumeAll={() => void runAction(() => api.resumeAll(), "")}
         />
 
         <main className="main">

@@ -12,6 +12,8 @@ const DEFAULTS: AppSettings = {
   maxRetries: 3,
   deleteWithRemove: true,
   lastSaveDir: null,
+  autoSave: false,
+  closeToTray: true,
 };
 
 export function useSettings() {

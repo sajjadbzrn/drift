@@ -4,12 +4,14 @@ import {
   CheckCircleIcon,
   GridIcon,
   MoonIcon,
+  PauseAllIcon,
   PauseIcon,
+  PlayAllIcon,
   SettingsIcon,
   SunIcon,
   XIcon,
 } from "../lib/icons";
-import { formatSpeed } from "../lib/format";
+import { formatBytes, formatSpeed } from "../lib/format";
 
 const FILTERS: { id: Filter; label: string; icon: typeof GridIcon }[] = [
   { id: "all", label: "All downloads", icon: GridIcon },
@@ -24,19 +26,27 @@ export function Sidebar({
   onFilter,
   counts,
   totalSpeed,
+  peakSpeed,
+  totalBytes,
   activeCount,
   theme,
   onToggleTheme,
   onOpenSettings,
+  onPauseAll,
+  onResumeAll,
 }: {
   filter: Filter;
   onFilter: (f: Filter) => void;
   counts: Record<Filter, number>;
   totalSpeed: number;
+  peakSpeed: number;
+  totalBytes: number;
   activeCount: number;
   theme: "dark" | "light";
   onToggleTheme: () => void;
   onOpenSettings: () => void;
+  onPauseAll: () => void;
+  onResumeAll: () => void;
 }) {
   return (
     <aside className="sidebar">
@@ -80,6 +90,41 @@ export function Sidebar({
               ? `${activeCount} active transfer${activeCount === 1 ? "" : "s"}`
               : "No active transfers"}
           </div>
+          <div className="stat-grid">
+            <div className="stat-mini">
+              <span className="stat-mini-label">Total</span>
+              <span className="stat-mini-value" title="Bytes pulled by drift">
+                {formatBytes(totalBytes)}
+              </span>
+            </div>
+            <div className="stat-mini">
+              <span className="stat-mini-label">Peak</span>
+              <span className="stat-mini-value" title="Fastest speed this session">
+                {formatSpeed(peakSpeed)}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div className="sidebar-queue">
+          <button
+            className="btn-ghost btn-sm"
+            onClick={onPauseAll}
+            disabled={activeCount === 0}
+            title="Pause all active downloads"
+          >
+            <PauseAllIcon width={14} height={14} />
+            Pause all
+          </button>
+          <button
+            className="btn-ghost btn-sm"
+            onClick={onResumeAll}
+            disabled={counts.paused === 0}
+            title="Resume all paused downloads"
+          >
+            <PlayAllIcon width={14} height={14} />
+            Resume all
+          </button>
         </div>
 
         <div className="sidebar-actions">

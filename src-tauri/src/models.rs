@@ -47,6 +47,11 @@ pub struct DownloadInfo {
     pub retries: u32,
     pub speed_limit: u64,
     pub completed_at: Option<u64>,
+    /// Queue position: lower value = closer to the front. Reassigned 0..n-1
+    /// by reorder; new downloads get the lowest value minus one so they land
+    /// on top. Defaults to 0 for entries saved by older versions.
+    #[serde(default)]
+    pub priority: i64,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -64,6 +69,12 @@ pub struct AppSettings {
     pub max_retries: u32,
     pub delete_with_remove: bool,
     pub last_save_dir: Option<String>,
+    /// Skip the save dialog and write straight into the chosen folder.
+    #[serde(default)]
+    pub auto_save: bool,
+    /// Hiding the window keeps downloads running; quit from the tray to exit.
+    #[serde(default)]
+    pub close_to_tray: bool,
 }
 
 impl Default for AppSettings {
@@ -78,6 +89,8 @@ impl Default for AppSettings {
             max_retries: 3,
             delete_with_remove: true,
             last_save_dir: None,
+            auto_save: false,
+            close_to_tray: true,
         }
     }
 }

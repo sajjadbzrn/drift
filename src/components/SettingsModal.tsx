@@ -208,6 +208,26 @@ export function SettingsModal({
           </section>
 
           <section>
+            <span className="section-label">Saving</span>
+            <Toggle
+              checked={settings.autoSave}
+              onChange={(v) => update({ autoSave: v })}
+              label="Save without asking"
+              desc="Skip the save dialog and write straight into your chosen folder with the server-provided filename."
+            />
+          </section>
+
+          <section>
+            <span className="section-label">System</span>
+            <Toggle
+              checked={settings.closeToTray}
+              onChange={(v) => update({ closeToTray: v })}
+              label="Close to tray"
+              desc="Closing the window keeps downloads running in the background. Use Quit from the tray icon to exit drift."
+            />
+          </section>
+
+          <section>
             <span className="section-label">Cleanup</span>
             <Toggle
               checked={settings.deleteWithRemove}
