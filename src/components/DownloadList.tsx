@@ -1,33 +1,21 @@
 import type { DownloadInfo, Filter } from "../types";
 import { DownloadCard } from "./DownloadCard";
 import { InboxIcon, ActivityIcon, CheckCircleIcon, PauseIcon, XIcon } from "../lib/icons";
+import { useI18n } from "../lib/i18n";
 
-const EMPTY: Record<Filter, { icon: typeof InboxIcon; title: string; sub: string }> = {
-  all: {
-    icon: InboxIcon,
-    title: "No downloads yet",
-    sub: "Paste a link above to start your first download.",
-  },
-  active: {
-    icon: ActivityIcon,
-    title: "Nothing in progress",
-    sub: "Active and queued downloads will show up here.",
-  },
-  completed: {
-    icon: CheckCircleIcon,
-    title: "No completed downloads",
-    sub: "Finished files will be listed here.",
-  },
-  paused: {
-    icon: PauseIcon,
-    title: "Nothing paused",
-    sub: "Paused downloads wait here until you resume them.",
-  },
-  failed: {
-    icon: XIcon,
-    title: "No failed downloads",
-    sub: "Failed or cancelled downloads show up here.",
-  },
+const EMPTY_KEYS: Record<Filter, { title: string; sub: string }> = {
+  all: { title: "emptyAllTitle", sub: "emptyAllSub" },
+  active: { title: "emptyActiveTitle", sub: "emptyActiveSub" },
+  completed: { title: "emptyCompletedTitle", sub: "emptyCompletedSub" },
+  paused: { title: "emptyPausedTitle", sub: "emptyPausedSub" },
+  failed: { title: "emptyFailedTitle", sub: "emptyFailedSub" },
+};
+const EMPTY_ICONS: Record<Filter, typeof InboxIcon> = {
+  all: InboxIcon,
+  active: ActivityIcon,
+  completed: CheckCircleIcon,
+  paused: PauseIcon,
+  failed: XIcon,
 };
 
 export function DownloadList({
@@ -55,16 +43,17 @@ export function DownloadList({
   onOpenFolder: (d: DownloadInfo) => void;
   onCopy: (d: DownloadInfo) => void;
 }) {
+  const t = useI18n();
   if (downloads.length === 0) {
-    const e = EMPTY[filter];
-    const Icon = e.icon;
+    const keys = EMPTY_KEYS[filter];
+    const Icon = EMPTY_ICONS[filter];
     return (
       <div className="empty">
         <div className="empty-icon">
           <Icon width={30} height={30} />
         </div>
-        <span className="empty-title">{e.title}</span>
-        <span className="empty-sub">{e.sub}</span>
+        <span className="empty-title">{t(keys.title)}</span>
+        <span className="empty-sub">{t(keys.sub)}</span>
       </div>
     );
   }

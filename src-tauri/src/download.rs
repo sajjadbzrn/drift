@@ -971,11 +971,17 @@ impl DownloadManager {
     fn notify_complete(&self, entry: &DownloadEntry) {
         use tauri_plugin_notification::NotificationExt;
         let filename = entry.info.lock().unwrap().filename.clone();
+        let lang = self.settings.lock().unwrap().language.clone();
+        let title = if lang == "fa" {
+            "دانلود کامل شد"
+        } else {
+            "Download complete"
+        };
         let _ = self
             .app
             .notification()
             .builder()
-            .title("Download complete")
+            .title(title)
             .body(filename)
             .show();
     }
@@ -983,11 +989,17 @@ impl DownloadManager {
     fn notify_failed(&self, entry: &DownloadEntry, msg: &str) {
         use tauri_plugin_notification::NotificationExt;
         let filename = entry.info.lock().unwrap().filename.clone();
+        let lang = self.settings.lock().unwrap().language.clone();
+        let title = if lang == "fa" {
+            "دانلود ناموفق بود"
+        } else {
+            "Download failed"
+        };
         let _ = self
             .app
             .notification()
             .builder()
-            .title("Download failed")
+            .title(title)
             .body(format!("{filename} — {msg}"))
             .show();
     }

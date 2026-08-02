@@ -1,8 +1,18 @@
+import { getActiveLang, localize } from "./i18n";
+
 const UNITS = ["B", "KB", "MB", "GB", "TB"];
+
+const HOUR = { en: "h", fa: "ساعت" };
+const MIN = { en: "m", fa: "دقیقه" };
+const SEC = { en: "s", fa: "ثانیه" };
+
+function unit(lang: "en" | "fa", map: Record<"en" | "fa", string>) {
+  return map[lang];
+}
 
 export function formatBytes(n: number): string {
   if (!Number.isFinite(n) || n < 0) return "—";
-  if (n < 1024) return `${Math.round(n)} B`;
+  if (n < 1024) return localize(`${Math.round(n)} B`);
   let u = 0;
   let v = n;
   while (v >= 1024 && u < UNITS.length - 1) {
@@ -10,27 +20,42 @@ export function formatBytes(n: number): string {
     u++;
   }
   const digits = v >= 100 ? 0 : v >= 10 ? 1 : 2;
-  return `${v.toFixed(digits)} ${UNITS[u]}`;
+  return localize(`${v.toFixed(digits)} ${UNITS[u]}`);
 }
 
 export function formatSpeed(bps: number): string {
   if (!Number.isFinite(bps) || bps <= 0) return "—";
-  return `${formatBytes(bps)}/s`;
+  const lang = getActiveLang();
+  return localize(`${formatBytes(bps)}${unit(lang, { en: "/s", fa: "/ث" })}`);
 }
 
 export function formatEta(remaining: number, speed: number): string {
   if (!Number.isFinite(remaining) || remaining <= 0 || speed <= 0) return "—";
+  const lang = getActiveLang();
   const secs = Math.max(1, Math.round(remaining / speed));
-  if (secs < 60) return `${secs}s`;
+  if (secs < 60) {
+    return localize(`${secs} ${unit(lang, SEC)}`);
+  }
   const m = Math.floor(secs / 60);
   const s = secs % 60;
-  if (m < 60) return `${m}m ${s.toString().padStart(2, "0")}s`;
+  if (m < 60) {
+    return localize(`${m} ${unit(lang, MIN)} ${s.toString().padStart(2, "0")} ${unit(lang, SEC)}`);
+  }
   const h = Math.floor(m / 60);
-  return `${h}h ${(m % 60).toString().padStart(2, "0")}m`;
+  return localize(`${h} ${unit(lang, HOUR)} ${(m % 60).toString().padStart(2, "0")} ${unit(lang, MIN)}`);
 }
 
 export function formatDate(ms: number): string {
   try {
+    if (getActiveLang() === "fa") {
+      return new Date(ms).toLocaleString("fa-IR", {
+        calendar: "gregory",
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    }
     return new Date(ms).toLocaleString(undefined, {
       month: "short",
       day: "numeric",

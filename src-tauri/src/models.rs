@@ -75,6 +75,9 @@ pub struct AppSettings {
     /// Hiding the window keeps downloads running; quit from the tray to exit.
     #[serde(default)]
     pub close_to_tray: bool,
+    /// UI language: "en" | "fa". Defaults to English.
+    #[serde(default)]
+    pub language: String,
 }
 
 impl Default for AppSettings {
@@ -91,6 +94,7 @@ impl Default for AppSettings {
             last_save_dir: None,
             auto_save: false,
             close_to_tray: true,
+            language: "en".into(),
         }
     }
 }

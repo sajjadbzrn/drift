@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { useI18n } from "../lib/i18n";
 
 const Win = () => getCurrentWindow();
 
@@ -37,6 +38,7 @@ function CloseIcon() {
 }
 
 export function Titlebar() {
+  const t = useI18n();
   const [maximized, setMaximized] = useState(false);
 
   useEffect(() => {
@@ -109,24 +111,24 @@ export function Titlebar() {
         <button
           className="titlebar-btn"
           onClick={minimize}
-          title="Minimize"
-          aria-label="Minimize"
+          title={t("minimize")}
+          aria-label={t("minimize")}
         >
           <MinimizeIcon />
         </button>
         <button
           className="titlebar-btn"
           onClick={toggleMax}
-          title={maximized ? "Restore" : "Maximize"}
-          aria-label={maximized ? "Restore" : "Maximize"}
+          title={maximized ? t("restore") : t("maximize")}
+          aria-label={maximized ? t("restore") : t("maximize")}
         >
           {maximized ? <RestoreIcon /> : <MaximizeIcon />}
         </button>
         <button
           className="titlebar-btn titlebar-btn-close"
           onClick={close}
-          title="Close"
-          aria-label="Close"
+          title={t("close")}
+          aria-label={t("close")}
         >
           <CloseIcon />
         </button>

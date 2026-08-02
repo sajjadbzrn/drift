@@ -95,15 +95,51 @@ fn show_main_window(app: &tauri::AppHandle) {
 }
 
 fn build_tray(app: &tauri::App) -> tauri::Result<()> {
-    let show = MenuItem::with_id(app, "show", "Show / Hide drift", true, None::<&str>)?;
-    let pause_all = MenuItem::with_id(app, "pause_all", "Pause all downloads", true, None::<&str>)?;
-    let resume_all = MenuItem::with_id(app, "resume_all", "Resume all downloads", true, None::<&str>)?;
+    let lang = app
+        .state::<Arc<DownloadManager>>()
+        .settings
+        .lock()
+        .unwrap()
+        .language
+        .clone();
+    let fa = lang == "fa";
+    let show = MenuItem::with_id(
+        app,
+        "show",
+        if fa { "نمایش / مخفی‌کردن دریفت" } else { "Show / Hide drift" },
+        true,
+        None::<&str>,
+    )?;
+    let pause_all = MenuItem::with_id(
+        app,
+        "pause_all",
+        if fa { "توقف همه دانلودها" } else { "Pause all downloads" },
+        true,
+        None::<&str>,
+    )?;
+    let resume_all = MenuItem::with_id(
+        app,
+        "resume_all",
+        if fa { "ادامه همه دانلودها" } else { "Resume all downloads" },
+        true,
+        None::<&str>,
+    )?;
     let sep = PredefinedMenuItem::separator(app)?;
-    let quit = MenuItem::with_id(app, "quit", "Quit drift", true, None::<&str>)?;
+    let quit = MenuItem::with_id(
+        app,
+        "quit",
+        if fa { "خروج از دریفت" } else { "Quit drift" },
+        true,
+        None::<&str>,
+    )?;
     let menu = Menu::with_items(app, &[&show, &pause_all, &resume_all, &sep, &quit])?;
 
     let mut tray = TrayIconBuilder::with_id("main-tray")
-        .tooltip("drift — download manager")
+        .tooltip(if fa {
+            "دریفت — مدیر دانلود"
+        } else {
+            "drift — download manager"
+        })
         .menu(&menu)
         .show_menu_on_left_click(false);
     if let Some(icon) = app.default_window_icon() {
@@ -145,6 +181,8 @@ pub fn run() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_deep_link::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             // On Windows/Linux a deep link while the app is already running
             // arrives as a second instance — forward the URL to the frontend

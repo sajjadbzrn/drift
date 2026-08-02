@@ -1,6 +1,7 @@
 import type { Dispatch, SetStateAction } from "react";
-import type { Toast } from "../types";
+import type { Toast, ToastAction } from "../types";
 import { CheckCircleIcon, XIcon, SparklesIcon } from "../lib/icons";
+import { useI18n } from "../lib/i18n";
 
 let toastCounter = 0;
 
@@ -11,24 +12,37 @@ export function ToastStack({
   toasts: Toast[];
   onDismiss: (id: number) => void;
 }) {
+  const t = useI18n();
   return (
     <div className="toasts">
-      {toasts.map((t) => (
-        <div key={t.id} className={`toast toast-${t.kind}`}>
+      {toasts.map((toast) => (
+        <div key={toast.id} className={`toast toast-${toast.kind}`}>
           <span className="toast-icon">
-            {t.kind === "success" ? (
+            {toast.kind === "success" ? (
               <CheckCircleIcon width={15} height={15} />
-            ) : t.kind === "error" ? (
+            ) : toast.kind === "error" ? (
               <XIcon width={15} height={15} />
             ) : (
               <SparklesIcon width={15} height={15} />
             )}
           </span>
-          <span className="toast-msg">{t.msg}</span>
+          <span className="toast-msg">{toast.msg}</span>
+          {toast.action && (
+            <button
+              className="toast-action"
+              onClick={() => {
+                toast.action?.onClick();
+                onDismiss(toast.id);
+              }}
+            >
+              {toast.action.label}
+            </button>
+          )}
           <button
             className="toast-close"
-            onClick={() => onDismiss(t.id)}
-            aria-label="Dismiss"
+            onClick={() => onDismiss(toast.id)}
+            aria-label={t("dismiss")}
+            title={t("dismiss")}
           >
             <XIcon width={13} height={13} />
           </button>
@@ -43,9 +57,10 @@ export function pushToast(
   setToasts: Dispatch<SetStateAction<Toast[]>>,
   msg: string,
   kind: Toast["kind"] = "info",
+  action?: ToastAction,
 ) {
   const id = ++toastCounter;
-  setToasts((t) => [...t.slice(-4), { id, msg, kind }]);
+  setToasts((t) => [...t.slice(-4), { id, msg, kind, action }]);
   window.setTimeout(() => {
     setToasts((t) => t.filter((x) => x.id !== id));
   }, 4200);

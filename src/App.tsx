@@ -9,9 +9,11 @@ import {
 import { api } from "./lib/ipc";
 import type { DownloadInfo, Filter, Toast } from "./types";
 import { formatSpeed, isActive } from "./lib/format";
+import { I18nProvider, makeT, num, setActiveLang } from "./lib/i18n";
 import { useDownloads } from "./hooks/useDownloads";
 import { useSettings } from "./hooks/useSettings";
 import { useClipboard } from "./hooks/useClipboard";
+import { useUpdater } from "./hooks/useUpdater";
 import { Titlebar } from "./components/Titlebar";
 import { Sidebar } from "./components/Sidebar";
 import { NewDownloadBar } from "./components/NewDownloadBar";
@@ -63,7 +65,7 @@ interface CtxState {
 
 function App() {
   const downloads = useDownloads();
-  const { settings, update } = useSettings();
+  const { settings, update, loaded: settingsLoaded } = useSettings();
   const systemDark = useSystemDark();
   const [filter, setFilter] = useState<Filter>("all");
   const [query, setQuery] = useState("");
@@ -72,6 +74,10 @@ function App() {
   const [ctx, setCtx] = useState<CtxState | null>(null);
   const clipboard = useClipboard(true);
   const peakRef = useRef(0);
+  const updater = useUpdater();
+  const autoCheckedRef = useRef(false);
+
+  const t = useMemo(() => makeT(settings.language), [settings.language]);
 
   const resolvedTheme: "dark" | "light" =
     settings.theme === "system" ? (systemDark ? "dark" : "light") : settings.theme;
@@ -80,8 +86,17 @@ function App() {
     document.documentElement.dataset.theme = resolvedTheme;
   }, [resolvedTheme]);
 
+  // Apply language: <html lang>, text direction, and number localization.
+  useEffect(() => {
+    const el = document.documentElement;
+    el.lang = settings.language;
+    el.dir = settings.language === "fa" ? "rtl" : "ltr";
+    setActiveLang(settings.language);
+  }, [settings.language]);
+
   const notify = useCallback(
-    (msg: string, kind: Toast["kind"] = "info") => pushToast(setToasts, msg, kind),
+    (msg: string, kind: Toast["kind"] = "info", action?: Toast["action"]) =>
+      pushToast(setToasts, msg, kind, action),
     [],
   );
 
@@ -97,6 +112,26 @@ function App() {
       }
     })();
   }, []);
+
+  // Silent update check once settings have loaded (and only once per session).
+  useEffect(() => {
+    if (!settingsLoaded || autoCheckedRef.current) return;
+    autoCheckedRef.current = true;
+    void (async () => {
+      try {
+        const info = await updater.check();
+        if (info) {
+          pushToast(setToasts, t("updateToast", { version: info.version }), "info", {
+            label: t("updateNow"),
+            onClick: () => void updater.startUpdate(),
+          });
+        }
+      } catch {
+        // silent — the check is best-effort
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settingsLoaded]);
 
   // Ctrl/Cmd+L focuses the URL bar
   useEffect(() => {
@@ -172,14 +207,14 @@ function App() {
     async (url: string, path: string, speedLimit: number | null) => {
       try {
         const d = await api.startDownload(url, path, speedLimit, null);
-        notify(`Downloading ${d.filename}`, "success");
+        notify(t("downloadingToast", { name: d.filename }), "success");
         const dir = parentDir(path);
         if (dir && dir !== settings.lastSaveDir) update({ lastSaveDir: dir });
       } catch (e) {
-        notify(`Could not start download: ${String(e)}`, "error");
+        notify(t("couldNotStart", { err: String(e) }), "error");
       }
     },
-    [notify, settings.lastSaveDir, update],
+    [notify, settings.lastSaveDir, t, update],
   );
 
   const runAction = useCallback(
@@ -200,10 +235,10 @@ function App() {
         settings.deleteWithRemove && d.status !== "downloading" && d.status !== "queued" && d.status !== "retrying";
       if (willDelete) {
         try {
-          const ok = await confirm(
-            `Delete "${d.filename}" from your disk?`,
-            { title: "Remove download", kind: "warning" },
-          );
+          const ok = await confirm(t("deleteConfirm", { name: d.filename }), {
+            title: t("removeTitle"),
+            kind: "warning",
+          });
           if (!ok) return;
         } catch {
           // dialog unavailable — proceed
@@ -211,18 +246,19 @@ function App() {
       }
       await runAction(() => api.remove(d.id), "");
     },
-    [runAction, settings.deleteWithRemove],
+    [runAction, settings.deleteWithRemove, t],
   );
 
   const clearFinished = useCallback(async () => {
     const finished = downloads.filter((d) => d.status === "completed");
     if (finished.length === 0) return;
+    const n = finished.length;
     try {
       const ok = await confirm(
         settings.deleteWithRemove
-          ? `Remove ${finished.length} finished download${finished.length === 1 ? "" : "s"}? Files will be deleted from disk.`
-          : `Remove ${finished.length} finished download${finished.length === 1 ? "" : "s"} from the list?`,
-        { title: "Clear finished", kind: "warning" },
+          ? t("clearFinishedDeleteConfirm", { n: num(n) })
+          : t("clearFinishedListConfirm", { n: num(n) }),
+        { title: t("clearFinishedTitle"), kind: "warning" },
       );
       if (!ok) return;
     } catch {
@@ -235,19 +271,19 @@ function App() {
         /* ignore per-item errors */
       }
     }
-    notify(`Cleared ${finished.length} finished download${finished.length === 1 ? "" : "s"}`, "success");
-  }, [downloads, notify, settings.deleteWithRemove]);
+    notify(t("clearedToast", { n: num(n) }), "success");
+  }, [downloads, notify, settings.deleteWithRemove, t]);
 
   const onCopy = useCallback(
     async (d: DownloadInfo) => {
       try {
         await writeText(d.url);
-        notify("Link copied to clipboard", "info");
+        notify(t("linkCopied"), "info");
       } catch {
-        notify("Could not copy link", "error");
+        notify(t("couldNotCopy"), "error");
       }
     },
-    [notify],
+    [notify, t],
   );
 
   const onOpenFile = useCallback(
@@ -255,10 +291,10 @@ function App() {
       try {
         await openPath(d.path);
       } catch {
-        notify("Could not open file", "error");
+        notify(t("couldNotOpenFile"), "error");
       }
     },
-    [notify],
+    [notify, t],
   );
 
   const onOpenFolder = useCallback(
@@ -266,10 +302,10 @@ function App() {
       try {
         await revealItemInDir(d.status === "completed" ? d.path : d.dir);
       } catch {
-        notify("Could not open folder", "error");
+        notify(t("couldNotOpenFolder"), "error");
       }
     },
-    [notify],
+    [notify, t],
   );
 
   const onCardContext = useCallback(
@@ -292,21 +328,21 @@ function App() {
     // Queue controls — reorder within the full (priority-sorted) queue.
     if (idx > 0) {
       items.push({
-        label: "Move up",
+        label: t("moveUp"),
         icon: <ChevronUpIcon width={14} height={14} />,
         onClick: () => void runAction(() => api.reorder(d.id, idx - 1), ""),
       });
     }
     if (idx < last) {
       items.push({
-        label: "Move down",
+        label: t("moveDown"),
         icon: <ChevronDownIcon width={14} height={14} />,
         onClick: () => void runAction(() => api.reorder(d.id, idx + 1), ""),
       });
     }
     if (idx > 0 && (d.status === "queued" || d.status === "paused")) {
       items.push({
-        label: "Start now",
+        label: t("startNow"),
         icon: <ChevronsUpIcon width={14} height={14} />,
         onClick: () =>
           void runAction(async () => {
@@ -317,117 +353,122 @@ function App() {
     }
     if (items.length > 0) items.push({ separator: true });
     if (d.status === "downloading" || d.status === "retrying") {
-      items.push({ label: "Pause", icon: <PauseIcon width={14} height={14} />, onClick: () => void runAction(() => api.pause(d.id), "") });
-      items.push({ label: "Cancel", danger: true, icon: <TrashIcon width={14} height={14} />, onClick: () => void runAction(() => api.cancel(d.id), "") });
+      items.push({ label: t("pause"), icon: <PauseIcon width={14} height={14} />, onClick: () => void runAction(() => api.pause(d.id), "") });
+      items.push({ label: t("cancel"), danger: true, icon: <TrashIcon width={14} height={14} />, onClick: () => void runAction(() => api.cancel(d.id), "") });
     } else if (d.status === "paused") {
-      items.push({ label: "Resume", icon: <PlayIcon width={14} height={14} />, onClick: () => void runAction(() => api.resume(d.id), "") });
-      items.push({ label: "Cancel", danger: true, icon: <TrashIcon width={14} height={14} />, onClick: () => void runAction(() => api.cancel(d.id), "") });
+      items.push({ label: t("resume"), icon: <PlayIcon width={14} height={14} />, onClick: () => void runAction(() => api.resume(d.id), "") });
+      items.push({ label: t("cancel"), danger: true, icon: <TrashIcon width={14} height={14} />, onClick: () => void runAction(() => api.cancel(d.id), "") });
     } else if (d.status === "failed" || d.status === "cancelled") {
-      items.push({ label: "Try again", icon: <RefreshIcon width={14} height={14} />, onClick: () => void runAction(() => api.retry(d.id), "") });
+      items.push({ label: t("tryAgain"), icon: <RefreshIcon width={14} height={14} />, onClick: () => void runAction(() => api.retry(d.id), "") });
     }
     if (d.status === "completed") {
-      items.push({ label: "Open file", icon: <ExternalIcon width={14} height={14} />, onClick: () => void onOpenFile(d) });
+      items.push({ label: t("openFile"), icon: <ExternalIcon width={14} height={14} />, onClick: () => void onOpenFile(d) });
     }
-    items.push({ label: "Show in folder", icon: <FolderIcon width={14} height={14} />, onClick: () => void onOpenFolder(d) });
-    items.push({ label: "Copy link", icon: <CopyIcon width={14} height={14} />, onClick: () => void onCopy(d) });
+    items.push({ label: t("showInFolder"), icon: <FolderIcon width={14} height={14} />, onClick: () => void onOpenFolder(d) });
+    items.push({ label: t("copyLink"), icon: <CopyIcon width={14} height={14} />, onClick: () => void onCopy(d) });
     items.push({ separator: true });
-    items.push({ label: "Remove", danger: true, icon: <TrashIcon width={14} height={14} />, onClick: () => void removeDownload(d) });
+    items.push({ label: t("remove"), danger: true, icon: <TrashIcon width={14} height={14} />, onClick: () => void removeDownload(d) });
     return items;
-  }, [ctx, downloads.length, runAction, onOpenFile, onOpenFolder, onCopy, removeDownload]);
+  }, [ctx, downloads.length, runAction, onOpenFile, onOpenFolder, onCopy, removeDownload, t]);
 
   return (
-    <div className="app">
-      <Titlebar />
-      <div className="app-body">
-        <Sidebar
-          filter={filter}
-          onFilter={setFilter}
-          counts={counts}
-          totalSpeed={totalSpeed}
-          peakSpeed={peakRef.current}
-          totalBytes={totalBytes}
-          activeCount={counts.active}
-          theme={resolvedTheme}
-          onToggleTheme={() =>
-            update({ theme: resolvedTheme === "dark" ? "light" : "dark" })
-          }
-          onOpenSettings={() => setSettingsOpen(true)}
-          onPauseAll={() => void runAction(() => api.pauseAll(), "")}
-          onResumeAll={() => void runAction(() => api.resumeAll(), "")}
-        />
+    <I18nProvider lang={settings.language}>
+      <div className="app">
+        <Titlebar />
+        <div className="app-body">
+          <Sidebar
+            filter={filter}
+            onFilter={setFilter}
+            counts={counts}
+            totalSpeed={totalSpeed}
+            peakSpeed={peakRef.current}
+            totalBytes={totalBytes}
+            activeCount={counts.active}
+            theme={resolvedTheme}
+            onToggleTheme={() =>
+              update({ theme: resolvedTheme === "dark" ? "light" : "dark" })
+            }
+            onOpenSettings={() => setSettingsOpen(true)}
+            onPauseAll={() => void runAction(() => api.pauseAll(), "")}
+            onResumeAll={() => void runAction(() => api.resumeAll(), "")}
+          />
 
-        <main className="main">
-          <div className="main-inner">
-            <header className="page-head">
-              <div className="page-title">
-                <h1>Downloads</h1>
-                <span className="page-count">
-                  {counts.all} item{counts.all === 1 ? "" : "s"}
-                </span>
-                {totalSpeed > 0 && (
-                  <span className="speed-pill">
-                    <BoltIcon width={13} height={13} />
-                    {formatSpeed(totalSpeed)}
+          <main className="main">
+            <div className="main-inner">
+              <header className="page-head">
+                <div className="page-title">
+                  <h1>{t("downloadsTitle")}</h1>
+                  <span className="page-count">
+                    {t("items", { n: num(counts.all) })}
                   </span>
-                )}
-              </div>
-              <div className="page-actions">
-                {counts.completed > 0 && (
-                  <button className="btn btn-ghost btn-sm" onClick={() => void clearFinished()}>
-                    Clear finished
-                  </button>
-                )}
-                <div className="search-wrap">
-                  <SearchIcon width={15} height={15} />
-                  <input
-                    className="search-input"
-                    value={query}
-                    onChange={(e) => setQuery(e.target.value)}
-                    placeholder="Search…"
-                    spellCheck={false}
-                  />
+                  {totalSpeed > 0 && (
+                    <span className="speed-pill">
+                      <BoltIcon width={13} height={13} />
+                      {formatSpeed(totalSpeed)}
+                    </span>
+                  )}
                 </div>
-              </div>
-            </header>
+                <div className="page-actions">
+                  {counts.completed > 0 && (
+                    <button className="btn btn-ghost btn-sm" onClick={() => void clearFinished()}>
+                      {t("clearFinished")}
+                    </button>
+                  )}
+                  <div className="search-wrap">
+                    <SearchIcon width={15} height={15} />
+                    <input
+                      className="search-input"
+                      value={query}
+                      onChange={(e) => setQuery(e.target.value)}
+                      placeholder={t("searchPlaceholder")}
+                      spellCheck={false}
+                    />
+                  </div>
+                </div>
+              </header>
 
-            <NewDownloadBar
-              settings={settings}
-              existingUrls={existingUrls}
-              hit={clipboard.hit}
-              onHitHandled={clipboard.clear}
-              onStart={startDownload}
-              notify={notify}
-            />
+              <NewDownloadBar
+                settings={settings}
+                existingUrls={existingUrls}
+                hit={clipboard.hit}
+                onHitHandled={clipboard.clear}
+                onStart={startDownload}
+                notify={notify}
+              />
 
-            <DownloadList
-              downloads={filtered}
-              filter={filter}
-              onContext={onCardContext}
-              onPause={(id) => void runAction(() => api.pause(id), "")}
-              onResume={(id) => void runAction(() => api.resume(id), "")}
-              onRetry={(id) => void runAction(() => api.retry(id), "")}
-              onCancel={(id) => void runAction(() => api.cancel(id), "")}
-              onRemove={removeDownload}
-              onOpenFile={onOpenFile}
-              onOpenFolder={onOpenFolder}
-              onCopy={onCopy}
-            />
-          </div>
-        </main>
+              <DownloadList
+                downloads={filtered}
+                filter={filter}
+                onContext={onCardContext}
+                onPause={(id) => void runAction(() => api.pause(id), "")}
+                onResume={(id) => void runAction(() => api.resume(id), "")}
+                onRetry={(id) => void runAction(() => api.retry(id), "")}
+                onCancel={(id) => void runAction(() => api.cancel(id), "")}
+                onRemove={removeDownload}
+                onOpenFile={onOpenFile}
+                onOpenFolder={onOpenFolder}
+                onCopy={onCopy}
+              />
+            </div>
+          </main>
+        </div>
+
+        {ctx && (
+          <ContextMenu x={ctx.x} y={ctx.y} items={ctxItems} onClose={closeCtx} />
+        )}
+
+        <SettingsModal
+          open={settingsOpen}
+          settings={settings}
+          update={update}
+          onClose={() => setSettingsOpen(false)}
+          updaterState={updater.state}
+          onCheckUpdates={() => void updater.check()}
+          onUpdateNow={() => void updater.startUpdate()}
+        />
+        <ToastStack toasts={toasts} onDismiss={(id) => dismissToast(setToasts, id)} />
       </div>
-
-      {ctx && (
-        <ContextMenu x={ctx.x} y={ctx.y} items={ctxItems} onClose={closeCtx} />
-      )}
-
-      <SettingsModal
-        open={settingsOpen}
-        settings={settings}
-        update={update}
-        onClose={() => setSettingsOpen(false)}
-      />
-      <ToastStack toasts={toasts} onDismiss={(id) => dismissToast(setToasts, id)} />
-    </div>
+    </I18nProvider>
   );
 }
 

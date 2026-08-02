@@ -12,14 +12,7 @@ import {
   XIcon,
 } from "../lib/icons";
 import { formatBytes, formatSpeed } from "../lib/format";
-
-const FILTERS: { id: Filter; label: string; icon: typeof GridIcon }[] = [
-  { id: "all", label: "All downloads", icon: GridIcon },
-  { id: "active", label: "Active", icon: ActivityIcon },
-  { id: "completed", label: "Completed", icon: CheckCircleIcon },
-  { id: "paused", label: "Paused", icon: PauseIcon },
-  { id: "failed", label: "Failed", icon: XIcon },
-];
+import { useI18n, num } from "../lib/i18n";
 
 export function Sidebar({
   filter,
@@ -48,18 +41,26 @@ export function Sidebar({
   onPauseAll: () => void;
   onResumeAll: () => void;
 }) {
+  const t = useI18n();
+  const FILTERS: { id: Filter; label: string; icon: typeof GridIcon }[] = [
+    { id: "all", label: t("allDownloads"), icon: GridIcon },
+    { id: "active", label: t("active"), icon: ActivityIcon },
+    { id: "completed", label: t("completed"), icon: CheckCircleIcon },
+    { id: "paused", label: t("paused"), icon: PauseIcon },
+    { id: "failed", label: t("failed"), icon: XIcon },
+  ];
+
   return (
     <aside className="sidebar">
       <div className="brand">
-        <img className="brand-logo" src="/drift.png" alt="drift" draggable={false} />
         <div className="brand-text">
-          <span className="brand-name">drift</span>
-          <span className="brand-tag">download manager</span>
+          <span className="brand-name">{t("appName")}</span>
+          <span className="brand-tag">{t("tagline")}</span>
         </div>
       </div>
 
       <nav className="nav">
-        <span className="nav-label">Library</span>
+        <span className="nav-label">{t("library")}</span>
         {FILTERS.map(({ id, label, icon: Icon }) => {
           const active = filter === id;
           return (
@@ -70,7 +71,7 @@ export function Sidebar({
             >
               <Icon width={17} height={17} />
               <span className="nav-item-label">{label}</span>
-              {counts[id] > 0 && <span className="nav-count">{counts[id]}</span>}
+              {counts[id] > 0 && <span className="nav-count">{num(counts[id])}</span>}
             </button>
           );
         })}
@@ -80,26 +81,26 @@ export function Sidebar({
         <div className="stat-card">
           <div className="stat-row">
             <span className="stat-label">
-              {activeCount > 0 ? "Downloading" : "Idle"}
+              {activeCount > 0 ? t("downloading") : t("idle")}
             </span>
             <span className={`stat-dot${activeCount > 0 ? " stat-dot-on" : ""}`} />
           </div>
           <div className="stat-value">{formatSpeed(totalSpeed)}</div>
           <div className="stat-sub">
             {activeCount > 0
-              ? `${activeCount} active transfer${activeCount === 1 ? "" : "s"}`
-              : "No active transfers"}
+              ? t("activeTransfers", { n: num(activeCount) })
+              : t("noActiveTransfers")}
           </div>
           <div className="stat-grid">
             <div className="stat-mini">
-              <span className="stat-mini-label">Total</span>
-              <span className="stat-mini-value" title="Bytes pulled by drift">
+              <span className="stat-mini-label">{t("total")}</span>
+              <span className="stat-mini-value" title={t("totalTitle")}>
                 {formatBytes(totalBytes)}
               </span>
             </div>
             <div className="stat-mini">
-              <span className="stat-mini-label">Peak</span>
-              <span className="stat-mini-value" title="Fastest speed this session">
+              <span className="stat-mini-label">{t("peak")}</span>
+              <span className="stat-mini-value" title={t("peakTitle")}>
                 {formatSpeed(peakSpeed)}
               </span>
             </div>
@@ -111,19 +112,19 @@ export function Sidebar({
             className="btn-ghost btn-sm"
             onClick={onPauseAll}
             disabled={activeCount === 0}
-            title="Pause all active downloads"
+            title={t("pauseAllTitle")}
           >
             <PauseAllIcon width={14} height={14} />
-            Pause all
+            {t("pauseAll")}
           </button>
           <button
             className="btn-ghost btn-sm"
             onClick={onResumeAll}
             disabled={counts.paused === 0}
-            title="Resume all paused downloads"
+            title={t("resumeAllTitle")}
           >
             <PlayAllIcon width={14} height={14} />
-            Resume all
+            {t("resumeAll")}
           </button>
         </div>
 
@@ -131,8 +132,8 @@ export function Sidebar({
           <button
             className="icon-btn"
             onClick={onToggleTheme}
-            title="Toggle theme"
-            aria-label="Toggle theme"
+            title={t("toggleTheme")}
+            aria-label={t("toggleTheme")}
           >
             {theme === "dark" ? (
               <SunIcon width={17} height={17} />
@@ -143,8 +144,8 @@ export function Sidebar({
           <button
             className="icon-btn"
             onClick={onOpenSettings}
-            title="Settings"
-            aria-label="Settings"
+            title={t("settings")}
+            aria-label={t("settings")}
           >
             <SettingsIcon width={17} height={17} />
           </button>

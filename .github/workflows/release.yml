@@ -1,0 +1,58 @@
+name: Release
+
+# Build a signed installer + updater manifest whenever a v* tag is pushed:
+#
+#   bun scripts/bump-version.mjs 0.2.0
+#   git add -A && git commit -m "Release v0.2.0"
+#   git tag v0.2.0 && git push && git push --tags
+#
+# The workflow uploads drift_<version>_x64-setup.exe, its .sig and latest.json
+# to the release. Users then update in place from Settings → Updates.
+#
+# First-time setup:
+#   1. Create a GitHub repo and push this project.
+#   2. Add the signing private key as a repository secret named
+#      TAURI_SIGNING_PRIVATE_KEY  (it lives locally in .keys/drift.key).
+#   3. In src-tauri/tauri.conf.json, replace OWNER/REPO in the updater
+#      endpoint with your actual GitHub owner/repo.
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  release:
+    runs-on: windows-latest
+    env:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Install frontend dependencies
+        run: bun install
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Build release bundles
+        run: bun run tauri build --bundles nsis
+
+      - name: Generate updater manifest
+        run: >
+          bun scripts/make-update-json.mjs
+          --version ${{ github.ref_name }}
+          --owner ${{ github.repository_owner }}
+          --repo ${{ github.event.repository.name }}
+
+      - name: Upload artifacts to the release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            src-tauri/target/release/bundle/nsis/*-setup.exe
+            src-tauri/target/release/bundle/nsis/*-setup.exe.sig
+            src-tauri/target/release/bundle/nsis/latest.json

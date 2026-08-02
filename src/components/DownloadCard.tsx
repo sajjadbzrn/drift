@@ -27,6 +27,21 @@ import {
   XIcon,
   BoltIcon,
 } from "../lib/icons";
+import { useI18n, num } from "../lib/i18n";
+
+const KIND_KEYS: Record<ReturnType<typeof fileKindOf>, string> = {
+  image: "kindImage",
+  video: "kindVideo",
+  audio: "kindAudio",
+  archive: "kindArchive",
+  code: "kindCode",
+  doc: "kindDoc",
+  pdf: "kindPdf",
+  app: "kindApp",
+  sheet: "kindSheet",
+  slides: "kindSlides",
+  file: "kindFile",
+};
 
 function KindIcon({ kind }: { kind: ReturnType<typeof fileKindOf> }) {
   switch (kind) {
@@ -52,20 +67,22 @@ function KindIcon({ kind }: { kind: ReturnType<typeof fileKindOf> }) {
 }
 
 function StatusBadge({ status, retries }: { status: DownloadInfo["status"]; retries: number }) {
-  const label =
+  const t = useI18n();
+  const key =
     status === "queued"
-      ? "Queued"
+      ? "badgeQueued"
       : status === "downloading"
-        ? "Downloading"
+        ? "badgeDownloading"
         : status === "retrying"
-          ? `Retrying… (${retries})`
+          ? "badgeRetrying"
           : status === "paused"
-            ? "Paused"
+            ? "badgePaused"
             : status === "completed"
-              ? "Done"
+              ? "badgeDone"
               : status === "cancelled"
-                ? "Cancelled"
-                : "Failed";
+                ? "badgeCancelled"
+                : "badgeFailed";
+  const label = key === "badgeRetrying" ? t(key, { n: num(retries) }) : t(key);
   return <span className={`badge badge-${status}`}>{label}</span>;
 }
 
@@ -170,6 +187,7 @@ export function DownloadCard({
   onOpenFolder: (d: DownloadInfo) => void;
   onCopy: (d: DownloadInfo) => void;
 }) {
+  const t = useI18n();
   const kind = fileKindOf(d.filename);
   const color = KIND_COLOR[kind];
   const percent = d.totalSize ? Math.min(100, (d.received / d.totalSize) * 100) : null;
@@ -193,7 +211,7 @@ export function DownloadCard({
       <div
         className="card-icon"
         style={{ background: `${color}1f`, color }}
-        title={`${kind} file`}
+        title={t(KIND_KEYS[kind])}
       >
         <KindIcon kind={kind} />
       </div>
@@ -205,14 +223,14 @@ export function DownloadCard({
           </span>
           <div className="card-chips">
             {d.segmented && (
-              <span className="chip chip-accent" title="Multi-connection download">
+              <span className="chip chip-accent" title={t("segmentedTitle")}>
                 <BoltIcon width={11} height={11} />
-                {d.segments.length}×
+                {num(d.segments.length)}×
               </span>
             )}
             {d.speedLimit > 0 && (
-              <span className="chip" title="Per-download speed limit">
-                ≤ {formatBytes(d.speedLimit)}/s
+              <span className="chip" title={t("speedLimitChipTitle")}>
+                {t("speedLimitChip", { v: formatBytes(d.speedLimit) })}
               </span>
             )}
             <StatusBadge status={d.status} retries={d.retries} />
@@ -230,19 +248,19 @@ export function DownloadCard({
           <span className="meta-left">
             {d.totalSize ? (
               <>
-                {formatBytes(d.received)} <span className="meta-dim">of</span>{" "}
+                {formatBytes(d.received)} <span className="meta-dim">{t("of")}</span>{" "}
                 {formatBytes(d.totalSize)}
                 {percent !== null && (
-                  <span className="meta-pct">· {Math.floor(percent)}%</span>
+                  <span className="meta-pct">· {num(Math.floor(percent))}%</span>
                 )}
               </>
             ) : running ? (
               <>
                 {formatBytes(d.received)} ·{" "}
-                <span className="meta-dim">determining size…</span>
+                <span className="meta-dim">{t("determiningSize")}</span>
               </>
             ) : (
-              <>{formatBytes(d.received)} downloaded</>
+              <>{t("downloaded", { v: formatBytes(d.received) })}</>
             )}
           </span>
           <span className="meta-right">
@@ -254,10 +272,14 @@ export function DownloadCard({
               </span>
             )}
             {running && d.totalSize && remaining !== null && (
-              <span className="meta-dim">{formatBytes(remaining)} remaining</span>
+              <span className="meta-dim">
+                {t("remaining", { v: formatBytes(remaining) })}
+              </span>
             )}
             {running && d.totalSize && remaining !== null && (
-              <span className="meta-dim">{formatEta(remaining, d.speed)} left</span>
+              <span className="meta-dim">
+                {t("left", { v: formatEta(remaining, d.speed) })}
+              </span>
             )}
             {d.status === "completed" && d.completedAt ? (
               <span className="meta-dim">{formatDate(d.completedAt)}</span>
@@ -265,8 +287,11 @@ export function DownloadCard({
             {d.status === "paused" && (
               <span className="meta-dim">
                 {d.totalSize
-                  ? `${formatBytes(d.received)} of ${formatBytes(d.totalSize)} saved`
-                  : `Resumable — ${formatBytes(d.received)} saved`}
+                  ? t("savedOf", {
+                      a: formatBytes(d.received),
+                      b: formatBytes(d.totalSize),
+                    })
+                  : t("resumable", { v: formatBytes(d.received) })}
               </span>
             )}
           </span>
@@ -280,39 +305,39 @@ export function DownloadCard({
 
         <div className="card-actions">
           {running && (
-            <ActionBtn title="Pause" onClick={() => onPause(d.id)}>
+            <ActionBtn title={t("pause")} onClick={() => onPause(d.id)}>
               <PauseIcon width={15} height={15} />
             </ActionBtn>
           )}
           {d.status === "paused" && (
-            <ActionBtn title="Resume" onClick={() => onResume(d.id)}>
+            <ActionBtn title={t("resume")} onClick={() => onResume(d.id)}>
               <PlayIcon width={15} height={15} />
             </ActionBtn>
           )}
           {failed && (
-            <ActionBtn title="Try again" onClick={() => onRetry(d.id)}>
+            <ActionBtn title={t("tryAgain")} onClick={() => onRetry(d.id)}>
               <RefreshIcon width={15} height={15} />
             </ActionBtn>
           )}
           {running && (
-            <ActionBtn title="Cancel" tone="danger" onClick={() => onCancel(d.id)}>
+            <ActionBtn title={t("cancel")} tone="danger" onClick={() => onCancel(d.id)}>
               <XIcon width={15} height={15} />
             </ActionBtn>
           )}
           {finished && (
-            <ActionBtn title="Open file" tone="ok" onClick={() => onOpenFile(d)}>
+            <ActionBtn title={t("openFile")} tone="ok" onClick={() => onOpenFile(d)}>
               <ExternalIcon width={15} height={15} />
             </ActionBtn>
           )}
           {!running && (
-            <ActionBtn title="Show in folder" onClick={() => onOpenFolder(d)}>
+            <ActionBtn title={t("showInFolder")} onClick={() => onOpenFolder(d)}>
               <FolderIcon width={15} height={15} />
             </ActionBtn>
           )}
-          <ActionBtn title="Copy link" onClick={() => onCopy(d)}>
+          <ActionBtn title={t("copyLink")} onClick={() => onCopy(d)}>
             <LinkIcon width={15} height={15} />
           </ActionBtn>
-          <ActionBtn title="Remove" tone="danger" onClick={() => onRemove(d)}>
+          <ActionBtn title={t("remove")} tone="danger" onClick={() => onRemove(d)}>
             <TrashIcon width={15} height={15} />
           </ActionBtn>
         </div>

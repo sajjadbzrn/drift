@@ -39,8 +39,12 @@ export interface DownloadInfo {
 
 export type Theme = "system" | "dark" | "light";
 
+export type Lang = "en" | "fa";
+
 export interface AppSettings {
   theme: Theme;
+  /** UI language: "en" | "fa". */
+  language: Lang;
   /** bytes/second, 0 = unlimited */
   globalSpeedLimit: number;
   /** default per-download limit, 0 = unlimited */
@@ -71,8 +75,14 @@ export type Filter =
   | "paused"
   | "failed";
 
+export interface ToastAction {
+  label: string;
+  onClick: () => void;
+}
+
 export interface Toast {
   id: number;
   msg: string;
   kind: "success" | "error" | "info";
+  action?: ToastAction;
 }

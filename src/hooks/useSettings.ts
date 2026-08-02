@@ -4,6 +4,7 @@ import type { AppSettings } from "../types";
 
 const DEFAULTS: AppSettings = {
   theme: "system",
+  language: "en",
   globalSpeedLimit: 0,
   defaultSpeedLimit: 0,
   maxConcurrent: 3,

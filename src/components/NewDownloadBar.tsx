@@ -8,6 +8,7 @@ import { api } from "../lib/ipc";
 import type { AppSettings } from "../types";
 import { formatBytes, looksLikeUrl } from "../lib/format";
 import { ArrowDownIcon, ClipboardIcon, FolderIcon, XIcon } from "../lib/icons";
+import { useI18n, num } from "../lib/i18n";
 import type { ClipboardHit } from "../hooks/useClipboard";
 
 function joinPath(dir: string, name: string): string {
@@ -56,6 +57,7 @@ export function NewDownloadBar({
   onStart: (url: string, path: string, speedLimit: number | null) => void;
   notify: (msg: string, kind: "success" | "error" | "info") => void;
 }) {
+  const t = useI18n();
   const [url, setUrl] = useState("");
   const [folder, setFolder] = useState<string | null>(null);
   const [limit, setLimit] = useState("");
@@ -88,23 +90,23 @@ export function NewDownloadBar({
     try {
       const chosen = await open({
         directory: true,
-        title: "Choose download folder",
+        title: t("chooseFolderTitle"),
         defaultPath: folder || undefined,
       });
       if (typeof chosen === "string") setFolder(chosen);
     } catch {
-      notify("Could not open folder picker", "error");
+      notify(t("folderPickerError"), "error");
     }
   };
 
   const startFlow = async (targetUrl: string) => {
     const clean = targetUrl.trim();
     if (!looksLikeUrl(clean) || !clean.startsWith("http")) {
-      notify("Enter a valid http(s) URL", "error");
+      notify(t("invalidUrl"), "error");
       return;
     }
     if (existingUrls.has(clean)) {
-      notify("This URL is already in your downloads", "info");
+      notify(t("alreadyExists"), "info");
       return;
     }
     setProbing(true);
@@ -117,7 +119,7 @@ export function NewDownloadBar({
       } else {
         const baseDir = folder ?? "";
         const r = await save({
-          title: "Save download as",
+          title: t("saveAs"),
           defaultPath: joinPath(baseDir, meta.filename || "download"),
         });
         if (typeof r !== "string") return; // user cancelled
@@ -128,7 +130,7 @@ export function NewDownloadBar({
       setLimit("");
       onHitHandled();
     } catch (e) {
-      notify(`Failed to start download: ${String(e)}`, "error");
+      notify(t("startFailed", { err: String(e) }), "error");
     } finally {
       setProbing(false);
     }
@@ -202,7 +204,7 @@ export function NewDownloadBar({
             <ClipboardIcon width={16} height={16} />
           </span>
           <div className="clipboard-body">
-            <span className="clipboard-title">URL copied to clipboard</span>
+            <span className="clipboard-title">{t("urlCopied")}</span>
             <span className="clipboard-url" title={hit.url}>
               {hit.url.length > 72 ? hit.url.slice(0, 72) + "…" : hit.url}
             </span>
@@ -213,9 +215,9 @@ export function NewDownloadBar({
             onClick={() => void startFlow(hit.url)}
           >
             <ArrowDownIcon width={14} height={14} />
-            Download
+            {t("download")}
           </button>
-          <button className="icon-btn" onClick={onHitHandled} title="Dismiss">
+          <button className="icon-btn" onClick={onHitHandled} title={t("dismiss")}>
             <XIcon width={15} height={15} />
           </button>
         </div>
@@ -224,17 +226,15 @@ export function NewDownloadBar({
       {batch && (
         <div className="batch-card">
           <div className="batch-head">
-            <span className="batch-title">
-              {batch.length} URLs detected
-            </span>
+            <span className="batch-title">{t("urlsDetected", { n: num(batch.length) })}</span>
             <button
               className="icon-btn"
               onClick={() => {
                 setBatch(null);
                 setUrl("");
               }}
-              title="Clear"
-              aria-label="Clear batch"
+              title={t("clearBatch")}
+              aria-label={t("clearBatch")}
             >
               <XIcon width={15} height={15} />
             </button>
@@ -253,15 +253,15 @@ export function NewDownloadBar({
                       return next && next.length > 1 ? next : null;
                     })
                   }
-                  title="Skip this URL"
-                  aria-label="Skip this URL"
+                  title={t("skipUrl")}
+                  aria-label={t("skipUrl")}
                 >
                   <XIcon width={13} height={13} />
                 </button>
               </div>
             ))}
             {batch.length > 6 && (
-              <span className="batch-more">+{batch.length - 6} more…</span>
+              <span className="batch-more">{t("moreUrls", { n: num(batch.length - 6) })}</span>
             )}
           </div>
           <div className="batch-actions">
@@ -271,7 +271,7 @@ export function NewDownloadBar({
               onClick={() => void downloadAll(batch)}
             >
               <ArrowDownIcon width={14} height={14} />
-              {probing ? "Adding…" : `Download all (${batch.length})`}
+              {probing ? t("adding") : t("downloadAll", { n: num(batch.length) })}
             </button>
           </div>
         </div>
@@ -285,7 +285,7 @@ export function NewDownloadBar({
             className="url-input"
             value={url}
             onChange={(e) => onInputChange(e.target.value)}
-            placeholder="Paste a link to download… (one per line for batch)"
+            placeholder={t("urlPlaceholder")}
             spellCheck={false}
             autoFocus
           />
@@ -293,9 +293,9 @@ export function NewDownloadBar({
             className="limit-input"
             value={limit}
             onChange={(e) => setLimit(e.target.value)}
-            placeholder="Limit"
-            title="Optional speed limit in MB/s"
-            aria-label="Speed limit in MB/s"
+            placeholder={t("limitPlaceholder")}
+            title={t("limitTitle")}
+            aria-label={t("limitTitle")}
             inputMode="decimal"
           />
           <span className="limit-unit">MB/s</span>
@@ -306,7 +306,7 @@ export function NewDownloadBar({
               ) : (
                 <ArrowDownIcon width={15} height={15} />
               )}
-              {probing ? "Checking…" : "Download"}
+              {probing ? t("checking") : t("download")}
             </button>
           )}
         </div>
@@ -315,22 +315,22 @@ export function NewDownloadBar({
             type="button"
             className="folder-chip"
             onClick={() => void changeFolder()}
-            title={folder || "Choose a folder"}
+            title={folder || t("chooseFolder")}
           >
             <FolderIcon width={14} height={14} />
             <span className="folder-path">
               {folder && folder.length > 52
                 ? "…" + folder.slice(folder.length - 52)
-                : folder || "Choose a folder"}
+                : folder || t("chooseFolder")}
             </span>
-            <span className="folder-change">Change</span>
+            <span className="folder-change">{t("change")}</span>
           </button>
           <span className="bar-hint">
             {limitBytes()
-              ? `Capped at ${formatBytes(limitBytes()!)}/s`
+              ? t("cappedAt", { v: formatBytes(limitBytes()!) })
               : settings.autoSave
-                ? "Auto-saving to folder"
-                : "No speed limit"}
+                ? t("autoSaving")
+                : t("noLimit")}
           </span>
         </div>
       </form>
