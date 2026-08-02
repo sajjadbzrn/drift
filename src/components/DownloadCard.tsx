@@ -171,7 +171,7 @@ export function DownloadCard({
   const kind = fileKindOf(d.filename);
   const color = KIND_COLOR[kind];
   const percent = d.totalSize ? Math.min(100, (d.received / d.totalSize) * 100) : null;
-  const remaining = d.totalSize ? d.totalSize - d.received : 0;
+  const remaining = d.totalSize ? Math.max(0, d.totalSize - d.received) : null;
   const running = d.status === "downloading" || d.status === "retrying";
   const finished = d.status === "completed";
   const failed = d.status === "failed" || d.status === "cancelled";
@@ -208,9 +208,6 @@ export function DownloadCard({
                 ≤ {formatBytes(d.speedLimit)}/s
               </span>
             )}
-            {d.status === "downloading" && !d.totalSize && (
-              <span className="chip">size unknown</span>
-            )}
             <StatusBadge status={d.status} retries={d.retries} />
           </div>
         </div>
@@ -232,6 +229,11 @@ export function DownloadCard({
                   <span className="meta-pct">· {Math.floor(percent)}%</span>
                 )}
               </>
+            ) : running ? (
+              <>
+                {formatBytes(d.received)} ·{" "}
+                <span className="meta-dim">determining size…</span>
+              </>
             ) : (
               <>{formatBytes(d.received)} downloaded</>
             )}
@@ -244,14 +246,21 @@ export function DownloadCard({
                 <SpeedSpark history={history} />
               </span>
             )}
-            {running && d.totalSize && (
+            {running && d.totalSize && remaining !== null && (
+              <span className="meta-dim">{formatBytes(remaining)} remaining</span>
+            )}
+            {running && d.totalSize && remaining !== null && (
               <span className="meta-dim">{formatEta(remaining, d.speed)} left</span>
             )}
             {d.status === "completed" && d.completedAt ? (
               <span className="meta-dim">{formatDate(d.completedAt)}</span>
             ) : null}
             {d.status === "paused" && (
-              <span className="meta-dim">Resumable — {formatBytes(d.received)} saved</span>
+              <span className="meta-dim">
+                {d.totalSize
+                  ? `${formatBytes(d.received)} of ${formatBytes(d.totalSize)} saved`
+                  : `Resumable — ${formatBytes(d.received)} saved`}
+              </span>
             )}
           </span>
         </div>

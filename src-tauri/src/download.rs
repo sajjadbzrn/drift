@@ -577,12 +577,27 @@ impl DownloadManager {
         } else {
             return AttemptOutcome::Failed(format!("HTTP {}", status.as_u16()));
         };
-        if received == 0 {
-            let _ = fs::remove_file(&part);
-        }
+        // If the probe couldn't determine the size, learn it from the real
+        // response headers so the UI can show %, remaining, and ETA at once.
+        let learned = if status == StatusCode::PARTIAL_CONTENT {
+            content_range_total(&resp)
+        } else if status.is_success() {
+            header_content_length(&resp)
+        } else {
+            None
+        };
         {
             let mut info = entry.info.lock().unwrap();
+            if info.total_size.is_none() {
+                info.total_size = learned;
+            }
             info.received = received;
+        }
+        if learned.is_some() {
+            self.emit_progress(&entry);
+        }
+        if received == 0 {
+            let _ = fs::remove_file(&part);
         }
         // Avoid a fake speed spike on resume: the speed tracker must start
         // from the actual byte offset, not from zero.
@@ -648,7 +663,9 @@ impl DownloadManager {
             };
         }
         // Defensive: never finalize a file that came up short of its declared size.
-        if let Some(total) = total_size {
+        // Prefer the size learned from the real response, fall back to the probe.
+        let declared = entry.info.lock().unwrap().total_size.or(total_size);
+        if let Some(total) = declared {
             if received < total {
                 return AttemptOutcome::Failed(format!(
                     "Incomplete transfer: got {received} of {total} bytes"
@@ -939,6 +956,16 @@ async fn download_segment(
     } else {
         return Err(AttemptError::Failed(format!("HTTP {}", status.as_u16())));
     };
+    // Segments only exist because ranges are supported, but the response can
+    // still teach us the true total size if the initial probe missed it.
+    if status == StatusCode::PARTIAL_CONTENT {
+        if let Some(total) = content_range_total(&resp) {
+            let mut info = entry.info.lock().unwrap();
+            if info.total_size.is_none() {
+                info.total_size = Some(total);
+            }
+        }
+    }
     if seg.received == 0 {
         let _ = fs::remove_file(&part);
     }
@@ -993,11 +1020,19 @@ pub async fn probe_url(client: &Client, url: &str) -> Result<UrlMeta, String> {
     let head = client.head(url).send().await;
     let mut filename: Option<String> = None;
     let mut content_type = None;
+    let mut size: Option<u64> = None;
+    let mut supports_ranges = false;
 
     if let Ok(resp) = head {
-        if !resp.status().is_client_error() {
-            let size = resp.content_length();
-            let supports_ranges = resp
+        if resp.status().is_success() {
+            // Only trust the HEAD size when Content-Length is actually present,
+            // and parse it manually: reqwest reports content_length() as 0 for
+            // HEAD responses (no body) even when the header exists, which would
+            // otherwise skip the ranged-GET size sniff below.
+            if resp.headers().contains_key(header::CONTENT_LENGTH) {
+                size = header_content_length(&resp);
+            }
+            supports_ranges = resp
                 .headers()
                 .get(header::ACCEPT_RANGES)
                 .map(|v| v == "bytes")
@@ -1008,51 +1043,65 @@ pub async fn probe_url(client: &Client, url: &str) -> Result<UrlMeta, String> {
                 .get(header::CONTENT_TYPE)
                 .and_then(|v| v.to_str().ok())
                 .map(String::from);
-            return Ok(UrlMeta {
-                filename: filename.unwrap_or_else(|| filename_from_url(url)),
-                size,
-                supports_ranges,
-                content_type,
-            });
         }
     }
 
-    // Fallback: ranged GET to sniff headers.
-    let resp = client
-        .get(url)
-        .header(header::RANGE, "bytes=0-0")
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
-    let status = resp.status();
-    let supports_ranges = status == StatusCode::PARTIAL_CONTENT;
-    let size: Option<u64> = if supports_ranges {
-        resp.headers()
-            .get(header::CONTENT_RANGE)
-            .and_then(|v| v.to_str().ok())
-            .and_then(|cr| cr.rsplit('/').next().map(|s| s.trim().to_string()))
-            .and_then(|s| s.parse::<u64>().ok())
-    } else if status.is_success() {
-        resp.content_length()
-    } else {
-        return Err(format!("HTTP {}", status.as_u16()));
-    };
-    if filename.is_none() {
-        filename = parse_content_disposition(resp.headers().get(header::CONTENT_DISPOSITION));
+    // If the HEAD probe didn't reveal a size (common on many CDNs and file
+    // hosts), sniff the real response with a tiny ranged GET so the UI can
+    // show total size, remaining bytes, and ETA right away.
+    if size.is_none() {
+        let resp = client
+            .get(url)
+            .header(header::RANGE, "bytes=0-0")
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+        let status = resp.status();
+        if status == StatusCode::PARTIAL_CONTENT {
+            supports_ranges = true;
+            size = content_range_total(&resp);
+        } else if status.is_success() {
+            size = if resp.headers().contains_key(header::CONTENT_LENGTH) {
+                header_content_length(&resp)
+            } else {
+                None
+            };
+        } else {
+            return Err(format!("HTTP {}", status.as_u16()));
+        }
+        if filename.is_none() {
+            filename = parse_content_disposition(resp.headers().get(header::CONTENT_DISPOSITION));
+        }
+        if content_type.is_none() {
+            content_type = resp
+                .headers()
+                .get(header::CONTENT_TYPE)
+                .and_then(|v| v.to_str().ok())
+                .map(String::from);
+        }
     }
-    if content_type.is_none() {
-        content_type = resp
-            .headers()
-            .get(header::CONTENT_TYPE)
-            .and_then(|v| v.to_str().ok())
-            .map(String::from);
-    }
+
     Ok(UrlMeta {
         filename: filename.unwrap_or_else(|| filename_from_url(url)),
         size,
         supports_ranges,
         content_type,
     })
+}
+
+fn content_range_total(resp: &reqwest::Response) -> Option<u64> {
+    resp.headers()
+        .get(header::CONTENT_RANGE)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|cr| cr.rsplit('/').next().map(|s| s.trim()))
+        .and_then(|s| s.parse::<u64>().ok())
+}
+
+fn header_content_length(resp: &reqwest::Response) -> Option<u64> {
+    resp.headers()
+        .get(header::CONTENT_LENGTH)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.trim().parse::<u64>().ok())
 }
 
 fn parse_content_disposition(h: Option<&reqwest::header::HeaderValue>) -> Option<String> {
@@ -1191,4 +1240,94 @@ fn now_millis() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{Read, Write};
+    use std::net::{SocketAddr, TcpListener};
+    use std::thread;
+
+    /// Serves a file where HEAD omits Content-Length (the reported problem)
+    /// but a ranged GET reveals the true size via Content-Range.
+    fn serve_no_length_head(total: u64) -> SocketAddr {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut s) = stream else { break };
+                let _ = s.set_read_timeout(Some(Duration::from_secs(5)));
+                let mut req = String::new();
+                let mut buf = [0u8; 2048];
+                loop {
+                    match s.read(&mut buf) {
+                        Ok(0) => break,
+                        Ok(n) => {
+                            req.push_str(&String::from_utf8_lossy(&buf[..n]));
+                            if req.contains("\r\n\r\n") || req.len() > 4096 {
+                                break;
+                            }
+                        }
+                        Err(_) => break,
+                    }
+                }
+                let resp = if req.starts_with("HEAD") {
+                    // HEAD says 200 but carries no Content-Length — common on CDNs.
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nConnection: close\r\n\r\n"
+                        .to_string()
+                } else if req.to_ascii_lowercase().contains("range: bytes=0-0") {
+                    format!(
+                        "HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 0-0/{total}\r\nContent-Length: 1\r\nConnection: close\r\n\r\nX"
+                    )
+                } else {
+                    format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: {total}\r\nConnection: close\r\n\r\n"
+                    )
+                };
+                let _ = s.write_all(resp.as_bytes());
+                let _ = s.flush();
+                let _ = s.shutdown(std::net::Shutdown::Both);
+            }
+        });
+        addr
+    }
+
+    #[test]
+    fn probe_learns_size_when_head_omits_content_length() {
+        let addr = serve_no_length_head(12_345);
+        let client = Client::new();
+        let meta = tauri::async_runtime::block_on(async move {
+            probe_url(&client, &format!("http://{addr}/video.mp4")).await
+        })
+        .expect("probe should succeed");
+        assert_eq!(meta.size, Some(12_345), "size should be learned via ranged GET");
+        assert!(meta.supports_ranges);
+        assert_eq!(meta.filename, "video.mp4");
+    }
+
+    #[test]
+    fn probe_uses_head_content_length_when_present() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut s) = stream else { break };
+                let mut buf = [0u8; 2048];
+                let _ = s.read(&mut buf);
+                let _ = s.write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: 999\r\nAccept-Ranges: bytes\r\nConnection: close\r\n\r\n",
+                );
+                let _ = s.flush();
+                let _ = s.shutdown(std::net::Shutdown::Both);
+            }
+        });
+        let client = Client::new();
+        let meta = tauri::async_runtime::block_on(async move {
+            probe_url(&client, &format!("http://{addr}/a.bin")).await
+        })
+        .expect("probe should succeed");
+        assert_eq!(meta.size, Some(999));
+        assert!(meta.supports_ranges);
+    }
 }
