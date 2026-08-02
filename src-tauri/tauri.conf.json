@@ -47,6 +47,7 @@
   "bundle": {
     "active": true,
     "targets": ["nsis"],
+    "createUpdaterArtifacts": true,
     "publisher": "Sajjad Bzn",
     "copyright": "Copyright © 2026 Sajjad Bzn",
     "category": "Utility",
