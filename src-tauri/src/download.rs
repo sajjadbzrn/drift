@@ -18,17 +18,46 @@ use uuid::Uuid;
 pub const SEGMENT_MIN_SIZE: u64 = 16 * 1024 * 1024; // 16 MB
 pub const MAX_SEGMENTS: usize = 8;
 
+/// Time constant (seconds) of the speed smoother. Larger = stabler readout;
+/// ~1 s smooths out bursty TCP sampling without making ETA feel sluggish.
+const SPEED_SMOOTH_TC: f64 = 1.0;
+
 const PART_EXT: &str = ".driftpart";
 
 /// 0 = none, 1 = pause, 2 = cancel
 pub type Action = AtomicU8;
+
+/// Smoothed speed tracker. Keeps the last sample time, the cumulative byte
+/// offset at that sample, and an exponentially smoothed speed so the UI sees
+/// a stable readout instead of raw instantaneous speed (which jumps wildly
+/// because TCP traffic arrives in bursts).
+pub struct SpeedState {
+    /// timestamp of the last speed sample
+    pub last: Instant,
+    /// cumulative bytes received at the last sample
+    pub last_received: u64,
+    /// exponentially smoothed speed, bytes/second
+    pub speed: f64,
+}
+
+impl SpeedState {
+    /// Fresh tracker starting from the given byte offset (e.g. on resume, so
+    /// the first sample is measured against the real offset, not zero).
+    pub fn at(offset: u64) -> Self {
+        Self {
+            last: Instant::now(),
+            last_received: offset,
+            speed: 0.0,
+        }
+    }
+}
 
 pub struct DownloadEntry {
     pub info: Mutex<DownloadInfo>,
     pub action: Action,
     /// live per-segment counters (segmented downloads)
     pub seg_recv: Vec<Arc<AtomicU64>>,
-    pub speed_state: Mutex<(Instant, u64)>,
+    pub speed_state: Mutex<SpeedState>,
 }
 
 pub enum AttemptOutcome {
@@ -119,7 +148,7 @@ impl DownloadManager {
             info: Mutex::new(info),
             action: AtomicU8::new(0),
             seg_recv: (0..n).map(|_| Arc::new(AtomicU64::new(0))).collect(),
-            speed_state: Mutex::new((Instant::now(), 0)),
+            speed_state: Mutex::new(SpeedState::at(0)),
         });
         let id = entry.info.lock().unwrap().id.clone();
         self.entries.lock().unwrap().insert(id, entry);
@@ -256,7 +285,7 @@ impl DownloadManager {
             info: Mutex::new(info),
             action: AtomicU8::new(0),
             seg_recv: (0..nseg).map(|_| Arc::new(AtomicU64::new(0))).collect(),
-            speed_state: Mutex::new((Instant::now(), 0)),
+            speed_state: Mutex::new(SpeedState::at(0)),
         });
         let id = entry.info.lock().unwrap().id.clone();
         self.entries.lock().unwrap().insert(id, entry.clone());
@@ -601,7 +630,7 @@ impl DownloadManager {
         }
         // Avoid a fake speed spike on resume: the speed tracker must start
         // from the actual byte offset, not from zero.
-        *entry.speed_state.lock().unwrap() = (Instant::now(), received);
+        *entry.speed_state.lock().unwrap() = SpeedState::at(received);
 
         let mut file = match tokio::fs::OpenOptions::new()
             .create(true)
@@ -721,7 +750,7 @@ impl DownloadManager {
             info.received = base;
             base
         };
-        *entry.speed_state.lock().unwrap() = (Instant::now(), base);
+        *entry.speed_state.lock().unwrap() = SpeedState::at(base);
 
         let eff_limit = self.effective_limit(speed_limit);
         let per_seg = if eff_limit > 0 {
@@ -871,15 +900,22 @@ impl DownloadManager {
     fn update_speed(&self, entry: &DownloadEntry, received: u64) {
         let mut st = entry.speed_state.lock().unwrap();
         let now = Instant::now();
-        let dt = now.duration_since(st.0).as_secs_f64();
-        let mut speed = 0.0;
-        if dt > 0.15 {
-            speed = (received.saturating_sub(st.1)) as f64 / dt;
-            *st = (now, received);
+        let dt = now.duration_since(st.last).as_secs_f64();
+        if dt >= 0.05 {
+            let instant = (received.saturating_sub(st.last_received)) as f64 / dt.max(1e-9);
+            // Time-based exponential moving average: a fixed time constant makes
+            // the readout stable regardless of sample spacing, and bursty TCP
+            // traffic no longer swings the displayed speed between ~0 and full.
+            let alpha = 1.0 - (-dt / SPEED_SMOOTH_TC).exp();
+            st.speed = alpha * instant + (1.0 - alpha) * st.speed;
+            st.last = now;
+            st.last_received = received;
         }
+        // Samples arriving too close together keep the last speed instead of
+        // flashing to 0, which previously made the readout "come and go".
         let mut info = entry.info.lock().unwrap();
         info.received = received;
-        info.speed = speed;
+        info.speed = st.speed;
         info.updated_at = now_millis();
     }
 
