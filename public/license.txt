@@ -1,0 +1,27 @@
+DRIFT DOWNLOAD MANAGER
+END USER LICENSE AGREEMENT (EULA)
+
+This End User License Agreement ("Agreement") is a legal agreement between you ("User") and Sajjad Bzn ("Licensor") for the software product drift Download Manager ("Software").
+
+1. GRANT OF LICENSE
+The Licensor grants you a personal, non-exclusive, non-transferable, revocable license to install and use the Software on any number of devices that you own or control, for personal or commercial use, free of charge.
+
+2. RESTRICTIONS
+You may not, and may not permit others to:
+(a) sell, rent, lease, sublicense, or redistribute the Software or any part of it;
+(b) decompile, reverse engineer, disassemble, or otherwise attempt to derive the source code of the Software;
+(c) remove or alter any copyright, trademark, or other proprietary notices contained in the Software.
+
+3. THIRD-PARTY SOFTWARE
+The Software may include third-party open-source components, each licensed under its own terms. Those components remain subject to their respective licenses.
+
+4. DISCLAIMER OF WARRANTY
+The Software is provided "AS IS", without warranty of any kind, express or implied, including but not limited to the warranties of merchantability, fitness for a particular purpose, and non-infringement. The entire risk arising out of the use or performance of the Software remains with you.
+
+5. LIMITATION OF LIABILITY
+In no event shall the Licensor be liable for any damages whatsoever (including, without limitation, damages for loss of profits, business interruption, loss of information, or other pecuniary loss) arising out of the use of or inability to use the Software, even if the Licensor has been advised of the possibility of such damages.
+
+6. GENERAL
+This Agreement constitutes the entire agreement between you and the Licensor regarding the Software and supersedes all prior agreements. If any provision of this Agreement is held to be unenforceable, the remaining provisions shall remain in full force and effect.
+
+Copyright © 2026 Sajjad Bzn. All rights reserved.

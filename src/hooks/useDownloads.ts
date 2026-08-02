@@ -1,0 +1,53 @@
+import { useEffect, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
+import { api, EVENTS } from "../lib/ipc";
+import type { DownloadInfo } from "../types";
+
+export function useDownloads() {
+  const [downloads, setDownloads] = useState<DownloadInfo[]>([]);
+
+  useEffect(() => {
+    let disposed = false;
+    let unlist: (() => void) | null = null;
+    let unprog: (() => void) | null = null;
+
+    (async () => {
+      const [l, p] = await Promise.all([
+        listen<DownloadInfo[]>(EVENTS.list, (e) => {
+          if (!disposed) setDownloads(e.payload);
+        }),
+        listen<DownloadInfo>(EVENTS.progress, (e) => {
+          if (disposed) return;
+          const next = e.payload;
+          setDownloads((prev) => {
+            const i = prev.findIndex((d) => d.id === next.id);
+            if (i === -1) return [...prev, next];
+            if (i === 0) return [next, ...prev.slice(1)];
+            return [...prev.slice(0, i), next, ...prev.slice(i + 1)];
+          });
+        }),
+      ]);
+      if (disposed) {
+        l();
+        p();
+        return;
+      }
+      unlist = l;
+      unprog = p;
+      try {
+        const initial = await api.getDownloads();
+        if (!disposed) setDownloads(initial);
+      } catch {
+        // backend unavailable (e.g. running in a plain browser) — stay empty
+      }
+    })();
+
+    return () => {
+      disposed = true;
+      unlist?.();
+      unprog?.();
+    };
+  }, []);
+
+  return downloads;
+}

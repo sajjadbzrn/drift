@@ -1,0 +1,55 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "drift",
+  "version": "0.1.0",
+  "identifier": "com.sajjadbzn.drift",
+  "build": {
+    "beforeDevCommand": "bun run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "bun run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "drift",
+        "width": 1024,
+        "height": 700,
+        "minWidth": 1024,
+        "maxWidth": 1024,
+        "minHeight": 700,
+        "maxHeight": 700,
+        "center": true,
+        "decorations": false,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "publisher": "Sajjad Bzn",
+    "copyright": "Copyright © 2026 Sajjad Bzn",
+    "category": "Utility",
+    "shortDescription": "Fast, modern download manager",
+    "longDescription": "drift is a modern, minimal download manager for Windows with segmented multi-connection downloads, pause and resume, per-download and global speed limits, clipboard URL detection, and a beautiful dual-theme interface.",
+    "licenseFile": "../public/license.txt",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": ["English"],
+        "displayLanguageSelector": false
+      }
+    }
+  }
+}
