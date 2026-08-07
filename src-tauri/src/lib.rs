@@ -8,7 +8,7 @@ use crate::models::{AppSettings, DownloadInfo, UrlMeta};
 use std::sync::Arc;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
-use tauri::{Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_deep_link::DeepLinkExt;
 
 #[tauri::command]
@@ -52,7 +52,9 @@ fn retry_download(state: State<'_, Arc<DownloadManager>>, id: String) -> Result<
 
 #[tauri::command]
 fn cancel_download(state: State<'_, Arc<DownloadManager>>, id: String) -> Result<(), String> {
-    state.cancel(&id)
+    state.cancel(&id)?;
+    state.flush();
+    Ok(())
 }
 
 #[tauri::command]
@@ -93,7 +95,7 @@ fn get_settings(state: State<'_, Arc<DownloadManager>>) -> AppSettings {
 fn set_settings(state: State<'_, Arc<DownloadManager>>, settings: AppSettings) -> Result<(), String> {
     let app = state.inner().app.clone();
     state.set_settings(settings.clone());
-    state.persist();
+    state.flush();
     // Keep the native messaging host manifest in sync (Chrome extension IDs).
     let _ = host::ensure_registered(&app, &settings);
     Ok(())
@@ -102,6 +104,31 @@ fn set_settings(state: State<'_, Arc<DownloadManager>>, settings: AppSettings) -
 #[tauri::command]
 fn get_native_host_status(state: State<'_, Arc<DownloadManager>>) -> NativeHostStatus {
     host::status(&state.inner().app)
+}
+
+#[tauri::command]
+fn update_tray_tooltip(app: AppHandle, count: usize) {
+    if let Some(tray) = app.tray_by_id("main-tray") {
+        let lang = app
+            .state::<Arc<DownloadManager>>()
+            .settings
+            .lock()
+            .unwrap()
+            .language
+            .clone();
+        let tooltip = if count > 0 {
+            if lang == "fa" {
+                format!("دریفت — {} دانلود فعال", count)
+            } else {
+                format!("drift — {} active download{}", count, if count == 1 { "" } else { "s" })
+            }
+        } else if lang == "fa" {
+            "دریفت — مدیر دانلود".into()
+        } else {
+            "drift — download manager".into()
+        };
+        let _ = tray.set_tooltip(Some(&tooltip));
+    }
 }
 
 fn show_main_window(app: &tauri::AppHandle) {
@@ -243,6 +270,9 @@ pub fn run() {
                 manager.restore_entry(info);
             }
             app.manage(manager);
+            // Background task that flushes state to disk every 5s during active
+            // downloads, avoiding per-change JSON serialize for large lists.
+            app.state::<Arc<DownloadManager>>().start_batcher();
 
             // drift://add?url=<encoded> — lets the browser (via a bookmarklet or
             // extension) hand links straight to drift.
@@ -273,7 +303,8 @@ pub fn run() {
             get_downloads,
             get_settings,
             set_settings,
-            get_native_host_status
+            get_native_host_status,
+            update_tray_tooltip
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

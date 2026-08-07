@@ -72,10 +72,16 @@ function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [ctx, setCtx] = useState<CtxState | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const clipboard = useClipboard(true);
   const peakRef = useRef(0);
   const updater = useUpdater();
   const autoCheckedRef = useRef(false);
+  /** Prevent rapid successive folder-open calls that can crash Explorer. */
+  const folderOpenGate = useRef(0);
+  /** Downloads pending removal — show undo toast, delete after 6s. */
+  const pendingRemove = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const [pendingRemoveIds, setPendingRemoveIds] = useState<Set<string>>(new Set());
 
   const t = useMemo(() => makeT(settings.language), [settings.language]);
 
@@ -133,17 +139,95 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settingsLoaded]);
 
-  // Ctrl/Cmd+L focuses the URL bar
+  // Refs for callbacks used inside the keyboard handler (defined later).
+  const kRefs = useRef<{
+    sortedAll: DownloadInfo[];
+    runAction: (fn: () => Promise<unknown>, okMsg: string) => void;
+    closeCtx: () => void;
+    removeDownload: (d: DownloadInfo) => void;
+    onOpenFile: (d: DownloadInfo) => void;
+    onOpenFolder: (d: DownloadInfo) => void;
+    ctx: CtxState | null;
+  }>({
+    sortedAll: [],
+    runAction: () => {},
+    closeCtx: () => {},
+    removeDownload: () => {},
+    onOpenFile: () => {},
+    onOpenFolder: () => {},
+    ctx: null,
+  });
+
+  // Keyboard shortcuts
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "l") {
+      const tag = (e.target as HTMLElement)?.tagName;
+      const isInput = tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || (e.target as HTMLElement)?.isContentEditable;
+      const mod = e.ctrlKey || e.metaKey;
+
+      if (mod && e.key.toLowerCase() === "l") {
         e.preventDefault();
         document.getElementById("url-input")?.focus();
+        return;
+      }
+      if (mod && e.key.toLowerCase() === "f") {
+        e.preventDefault();
+        document.querySelector<HTMLInputElement>(".search-input")?.focus();
+        return;
+      }
+      if (mod && e.key.toLowerCase() === "j") {
+        e.preventDefault();
+        setSettingsOpen(true);
+        return;
+      }
+      if (e.key === "Escape") {
+        if (kRefs.current.ctx) { kRefs.current.closeCtx(); return; }
+        setSelectedId(null);
+        return;
+      }
+
+      if (isInput) return;
+
+      const list = kRefs.current.sortedAll;
+      const idx = selectedId ? list.findIndex((d) => d.id === selectedId) : -1;
+      const sel = idx >= 0 ? list[idx] : null;
+
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        if (list.length === 0) return;
+        const delta = e.key === "ArrowDown" ? 1 : -1;
+        let next = idx === -1 ? (delta > 0 ? 0 : list.length - 1) : idx + delta;
+        if (next < 0) next = list.length - 1;
+        if (next >= list.length) next = 0;
+        setSelectedId(list[next].id);
+        return;
+      }
+
+      if (sel) {
+        if (e.key === " ") {
+          e.preventDefault();
+          const s = sel.status;
+          if (s === "downloading" || s === "retrying") kRefs.current.runAction(() => api.pause(sel.id), "");
+          else if (s === "paused") kRefs.current.runAction(() => api.resume(sel.id), "");
+          else if (s === "failed" || s === "cancelled") kRefs.current.runAction(() => api.retry(sel.id), "");
+          return;
+        }
+        if (e.key === "Delete") {
+          e.preventDefault();
+          kRefs.current.removeDownload(sel);
+          return;
+        }
+        if (e.key === "Enter") {
+          e.preventDefault();
+          if (sel.status === "completed") kRefs.current.onOpenFile(sel);
+          else kRefs.current.onOpenFolder(sel);
+          return;
+        }
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [selectedId]);
 
   const counts = useMemo(
     () => ({
@@ -157,6 +241,11 @@ function App() {
     }),
     [downloads],
   );
+
+  // Keep the tray tooltip in sync with active download count.
+  useEffect(() => {
+    void api.updateTrayTooltip(counts.active).catch(() => {});
+  }, [counts.active]);
 
   const totalSpeed = useMemo(
     () =>
@@ -195,8 +284,10 @@ function App() {
         (d) =>
           d.filename.toLowerCase().includes(q) || d.url.toLowerCase().includes(q),
       );
+    // Exclude items pending removal (undo window still open).
+    list = list.filter((d) => !pendingRemoveIds.has(d.id));
     return list;
-  }, [sortedAll, filter, query]);
+  }, [sortedAll, filter, query, pendingRemoveIds]);
 
   const existingUrls = useMemo(
     () => new Set(downloads.map((d) => d.url)),
@@ -234,6 +325,39 @@ function App() {
     [notify],
   );
 
+  const scheduleRemove = useCallback(
+    (d: DownloadInfo) => {
+      if (pendingRemove.current.has(d.id)) return;
+      const timer = setTimeout(() => {
+        pendingRemove.current.delete(d.id);
+        setPendingRemoveIds((prev) => {
+          const next = new Set(prev);
+          next.delete(d.id);
+          return next;
+        });
+        void api.remove(d.id).catch(() => {});
+      }, 6000);
+      pendingRemove.current.set(d.id, timer);
+      setPendingRemoveIds((prev) => new Set(prev).add(d.id));
+      notify(t("removedToast", { name: d.filename }), "info", {
+        label: t("undo"),
+        onClick: () => {
+          const tmr = pendingRemove.current.get(d.id);
+          if (tmr) {
+            clearTimeout(tmr);
+            pendingRemove.current.delete(d.id);
+            setPendingRemoveIds((prev) => {
+              const next = new Set(prev);
+              next.delete(d.id);
+              return next;
+            });
+          }
+        },
+      });
+    },
+    [notify, t],
+  );
+
   const removeDownload = useCallback(
     async (d: DownloadInfo) => {
       const willDelete =
@@ -249,9 +373,9 @@ function App() {
           // dialog unavailable — proceed
         }
       }
-      await runAction(() => api.remove(d.id), "");
+      scheduleRemove(d);
     },
-    [runAction, settings.deleteWithRemove, t],
+    [scheduleRemove, settings.deleteWithRemove, t],
   );
 
   const clearFinished = useCallback(async () => {
@@ -269,14 +393,37 @@ function App() {
     } catch {
       // dialog unavailable — proceed
     }
+    const ids = finished.map((d) => d.id);
     for (const d of finished) {
-      try {
-        await api.remove(d.id);
-      } catch {
-        /* ignore per-item errors */
-      }
+      if (pendingRemove.current.has(d.id)) continue;
+      const timer = setTimeout(() => {
+        pendingRemove.current.delete(d.id);
+        void api.remove(d.id).catch(() => {});
+      }, 8000);
+      pendingRemove.current.set(d.id, timer);
     }
-    notify(t("clearedToast", { n: num(n) }), "success");
+    setPendingRemoveIds((prev) => {
+      const next = new Set(prev);
+      for (const id of ids) next.add(id);
+      return next;
+    });
+    notify(t("clearedToast", { n: num(n) }), "info", {
+      label: t("undo"),
+      onClick: () => {
+        for (const d of finished) {
+          const tmr = pendingRemove.current.get(d.id);
+          if (tmr) {
+            clearTimeout(tmr);
+            pendingRemove.current.delete(d.id);
+          }
+        }
+        setPendingRemoveIds((prev) => {
+          const next = new Set(prev);
+          for (const id of ids) next.delete(id);
+          return next;
+        });
+      },
+    });
   }, [downloads, notify, settings.deleteWithRemove, t]);
 
   const onCopy = useCallback(
@@ -304,6 +451,12 @@ function App() {
 
   const onOpenFolder = useCallback(
     async (d: DownloadInfo) => {
+      const now = Date.now();
+      if (now - folderOpenGate.current < 500) {
+        notify(t("waitFolder"), "info");
+        return;
+      }
+      folderOpenGate.current = now;
       try {
         await revealItemInDir(d.status === "completed" ? d.path : d.dir);
       } catch {
@@ -323,6 +476,9 @@ function App() {
   );
 
   const closeCtx = useCallback(() => setCtx(null), []);
+
+  // Keep the keyboard handler's refs in sync with latest callbacks.
+  kRefs.current = { sortedAll, runAction, closeCtx, removeDownload, onOpenFile, onOpenFolder, ctx };
 
   const ctxItems = useMemo<MenuItem[]>(() => {
     if (!ctx) return [];
@@ -389,6 +545,8 @@ function App() {
             peakSpeed={peakRef.current}
             totalBytes={totalBytes}
             activeCount={counts.active}
+            maxConcurrent={settings.maxConcurrent}
+            onMaxConcurrent={(v) => update({ maxConcurrent: v })}
             theme={resolvedTheme}
             onToggleTheme={() =>
               update({ theme: resolvedTheme === "dark" ? "light" : "dark" })
@@ -444,6 +602,8 @@ function App() {
               <DownloadList
                 downloads={filtered}
                 filter={filter}
+                selectedId={selectedId}
+                onSelect={setSelectedId}
                 onContext={onCardContext}
                 onPause={(id) => void runAction(() => api.pause(id), "")}
                 onResume={(id) => void runAction(() => api.resume(id), "")}

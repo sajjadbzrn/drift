@@ -36,6 +36,7 @@ export const api = {
   getSettings: () => invoke<AppSettings>("get_settings"),
   setSettings: (settings: AppSettings) => invoke<void>("set_settings", { settings }),
   getNativeHostStatus: () => invoke<NativeHostStatus>("get_native_host_status"),
+  updateTrayTooltip: (count: number) => invoke<void>("update_tray_tooltip", { count }),
 };
 
 export const EVENTS = {

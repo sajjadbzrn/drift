@@ -81,6 +81,7 @@ pub struct DownloadManager {
     pub semaphore: Arc<Mutex<Arc<tokio::sync::Semaphore>>>,
     pub settings: Mutex<AppSettings>,
     pub active: AtomicUsize,
+    dirty: AtomicU8, // 0 = clean, 1 = dirty
 }
 
 impl DownloadManager {
@@ -99,6 +100,7 @@ impl DownloadManager {
             semaphore: Arc::new(Mutex::new(sem)),
             settings: Mutex::new(settings),
             active: AtomicUsize::new(0),
+            dirty: AtomicU8::new(0),
         }
     }
 
@@ -114,9 +116,17 @@ impl DownloadManager {
             .ok()
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default();
-        let infos: Vec<DownloadInfo> = fs::read_to_string(dir.join("downloads.json"))
+        let dl_path = dir.join("downloads.json");
+        let infos: Vec<DownloadInfo> = fs::read_to_string(&dl_path)
             .ok()
-            .and_then(|s| serde_json::from_str(&s).ok())
+            .and_then(|s| match serde_json::from_str(&s) {
+                Ok(v) => Some(v),
+                Err(e) => {
+                    eprintln!("drift: corrupt downloads.json ({e}) — backing up and starting fresh");
+                    let _ = fs::rename(&dl_path, dir.join("downloads.json.bak"));
+                    None
+                }
+            })
             .unwrap_or_default();
         let infos = infos
             .into_iter()
@@ -154,7 +164,16 @@ impl DownloadManager {
         self.entries.lock().unwrap().insert(id, entry);
     }
 
+    /// Mark state as dirty. The background batcher writes to disk every ~5s.
+    /// Call `flush()` directly for critical state transitions (complete,
+    /// failed, cancel, remove) so they survive a crash immediately.
     pub fn persist(&self) {
+        self.dirty.store(1, Ordering::SeqCst);
+    }
+
+    /// Write state to disk immediately — call on critical transitions.
+    pub fn flush(&self) {
+        self.dirty.store(0, Ordering::SeqCst);
         let infos: Vec<DownloadInfo> = self
             .entries
             .lock()
@@ -171,6 +190,20 @@ impl DownloadManager {
         if let Ok(json) = serde_json::to_string_pretty(&settings) {
             let _ = fs::write(dir.join("settings.json"), json);
         }
+    }
+
+    /// Background task: flush to disk every 5s if the dirty flag is set.
+    pub fn start_batcher(self: &Arc<Self>) {
+        let this = self.clone();
+        tauri::async_runtime::spawn(async move {
+            let mut ticker = tokio::time::interval(Duration::from_secs(5));
+            loop {
+                ticker.tick().await;
+                if this.dirty.swap(0, Ordering::SeqCst) == 1 {
+                    this.flush();
+                }
+            }
+        });
     }
 
     pub fn snapshot(&self) -> Vec<DownloadInfo> {
@@ -459,7 +492,7 @@ impl DownloadManager {
                 let _ = fs::remove_file(&entry.info.lock().unwrap().path);
             }
         }
-        self.persist();
+        self.flush();
         self.emit_list();
         Ok(())
     }
@@ -526,7 +559,7 @@ impl DownloadManager {
                         info.completed_at = Some(now_millis());
                         info.updated_at = now_millis();
                     }
-                    self.persist();
+                    self.flush();
                     self.emit_list();
                     self.notify_complete(&entry);
                     break;
@@ -550,7 +583,7 @@ impl DownloadManager {
                     info.updated_at = now_millis();
                     drop(info);
                     self.cleanup_parts(&entry);
-                    self.persist();
+                    self.flush();
                     self.emit_list();
                     break;
                 }
@@ -577,7 +610,7 @@ impl DownloadManager {
                         info.error = Some(msg.clone());
                         info.updated_at = now_millis();
                     }
-                    self.persist();
+                    self.flush();
                     self.emit_list();
                     self.notify_failed(&entry, &msg);
                     break;
@@ -1093,9 +1126,10 @@ impl DownloadManager {
     }
 
     fn cleanup_parts(&self, entry: &DownloadEntry) {
-        let n = entry.info.lock().unwrap().segments.len().max(1);
-        let path = entry.info.lock().unwrap().path.clone();
-        let fp = PathBuf::from(&path);
+        let info = entry.info.lock().unwrap();
+        let n = info.segments.len().max(1);
+        let fp = PathBuf::from(&info.path);
+        drop(info);
         for i in 0..n {
             let _ = fs::remove_file(part_path(&fp, i));
         }

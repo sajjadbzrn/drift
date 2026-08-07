@@ -22,6 +22,8 @@ export function Sidebar({
   peakSpeed,
   totalBytes,
   activeCount,
+  maxConcurrent,
+  onMaxConcurrent,
   theme,
   onToggleTheme,
   onOpenSettings,
@@ -35,6 +37,8 @@ export function Sidebar({
   peakSpeed: number;
   totalBytes: number;
   activeCount: number;
+  maxConcurrent: number;
+  onMaxConcurrent: (v: number) => void;
   theme: "dark" | "light";
   onToggleTheme: () => void;
   onOpenSettings: () => void;
@@ -104,6 +108,22 @@ export function Sidebar({
                 {formatSpeed(peakSpeed)}
               </span>
             </div>
+          </div>
+        </div>
+
+        <div className="concurrent-section">
+          <span className="concurrent-label">{t("concurrent")}</span>
+          <div className="concurrent-group">
+            {[1, 2, 3, 4, 6, 8].map((n) => (
+              <button
+                key={n}
+                className={`concurrent-chip${maxConcurrent === n ? " concurrent-chip-on" : ""}`}
+                onClick={() => onMaxConcurrent(n)}
+                title={t("concurrentTitle", { n: num(n) })}
+              >
+                {num(n)}
+              </button>
+            ))}
           </div>
         </div>
 

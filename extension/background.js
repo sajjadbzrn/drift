@@ -134,8 +134,10 @@ function checkHost(force) {
   });
 }
 
-/** Send one request to the host and resolve "ok" or an error string. */
-function sendToDrift(msg) {
+/** Send one request to the host and resolve "ok" or an error string.
+ *  Retries once on disconnection/timeout with a 500ms delay before falling
+ *  back, so a brief host restart doesn't drop the user's download. */
+function sendToDrift(msg, retries = 0) {
   return new Promise((resolve) => {
     let port = null;
     let settled = false;
@@ -147,6 +149,12 @@ function sendToDrift(msg) {
         if (port) port.disconnect();
       } catch (e) {
         /* already disconnected */
+      }
+      if (!ok && retries < 1) {
+        setTimeout(() => {
+          sendToDrift(msg, retries + 1).then(resolve);
+        }, 500);
+        return;
       }
       resolve(ok ? "ok" : err || "failed");
     };
@@ -178,7 +186,7 @@ NS.downloads.onCreated.addListener(async (item) => {
     const now = Date.now();
     if (now - (recentCaptures.get(url) || 0) < CAPTURE_DEDUPE_MS) return;
     recentCaptures.set(url, now);
-    if (recentCaptures.size > 200) {
+    if (recentCaptures.size > 100) {
       for (const [k, v] of recentCaptures) {
         if (now - v > 60000) recentCaptures.delete(k);
       }
@@ -215,6 +223,8 @@ NS.downloads.onCreated.addListener(async (item) => {
     }
   } catch (e) {
     // never throw out of a listener
+  } finally {
+    if (item && item.id) selfDownloads.delete(item.id);
   }
 });
 
@@ -306,7 +316,15 @@ NS.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
             filename: null,
             referrer: msg.referrer || null,
           });
-          sendResponse({ ok: res === "ok", hostState: state });
+          sendResponse({ ok: res === "ok", hostState: state, error: res === "ok" ? null : res });
+        } else if (state === "forbidden") {
+          // Extension ID not yet allowed in drift's settings — tell the user
+          // instead of falling through to a page-download that would be wrong.
+          sendResponse({
+            ok: false,
+            hostState: state,
+            error: "Add this extension ID in drift Settings → Browser integration",
+          });
         } else {
           try {
             await call(NS.downloads.download, { url: msg.url });
@@ -326,3 +344,30 @@ NS.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 });
 
 void loadSettings();
+
+// Periodic cleanup of the recentCaptures dedupe map so it never grows
+// unbounded between the inline prune inside onCreated (which only fires at
+// size > 100). Runs every 30 seconds.
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, v] of recentCaptures) {
+    if (now - v > 60000) recentCaptures.delete(k);
+  }
+}, 30000);
+
+// Chrome MV3 kills service workers after ~30s of idling. A heartbeat alarm
+// keeps the worker alive so auto-capture and host detection stay responsive.
+try {
+  NS.alarms.create("drift-heartbeat", { periodInMinutes: 0.33 });
+  NS.alarms.onAlarm.addListener((alarm) => {
+    if (alarm.name === "drift-heartbeat") {
+      void loadSettings();
+      // Don't force a host check — just refresh the cached state and let
+      // the next actual download request open a port if needed.
+      void checkHost(false);
+    }
+  });
+} catch (e) {
+  // alarms API may not exist on all browsers (e.g. older Firefox versions) —
+  // the extension still works, just without the idle-wake guarantee.
+}

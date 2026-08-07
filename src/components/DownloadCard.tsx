@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { DownloadInfo } from "../types";
 import {
   fileKindOf,
@@ -165,6 +165,9 @@ function SpeedSpark({ history }: { history: number[] }) {
 export function DownloadCard({
   d,
   index,
+  queuePos,
+  selected,
+  onSelect,
   onContext,
   onPause,
   onResume,
@@ -177,6 +180,9 @@ export function DownloadCard({
 }: {
   d: DownloadInfo;
   index?: number;
+  queuePos?: number;
+  selected?: boolean;
+  onSelect?: () => void;
   onContext: (d: DownloadInfo, e: React.MouseEvent) => void;
   onPause: (id: string) => void;
   onResume: (id: string) => void;
@@ -196,10 +202,11 @@ export function DownloadCard({
   const finished = d.status === "completed";
   const failed = d.status === "failed" || d.status === "cancelled";
   const history = useSpeedHistory(d.id, d.speed);
+  const [folderJustOpened, setFolderJustOpened] = useState(false);
 
   return (
     <div
-      className={`card${failed ? " card-failed" : ""}`}
+      className={`card${failed ? " card-failed" : ""}${selected ? " card-selected" : ""}`}
       style={
         {
           animationDelay: `${Math.min(index ?? 0, 10) * 32}ms`,
@@ -207,6 +214,12 @@ export function DownloadCard({
         } as React.CSSProperties
       }
       onContextMenu={(e) => onContext(d, e)}
+      onClick={(e) => {
+        if (onSelect) {
+          e.preventDefault();
+          onSelect();
+        }
+      }}
     >
       <div
         className="card-icon"
@@ -231,6 +244,11 @@ export function DownloadCard({
             {d.speedLimit > 0 && (
               <span className="chip" title={t("speedLimitChipTitle")}>
                 {t("speedLimitChip", { v: formatBytes(d.speedLimit) })}
+              </span>
+            )}
+            {d.status === "queued" && queuePos && queuePos > 0 && (
+              <span className="chip" title={t("queuePosTitle", { n: num(queuePos) })}>
+                #{num(queuePos)}
               </span>
             )}
             <StatusBadge status={d.status} retries={d.retries} />
@@ -330,7 +348,15 @@ export function DownloadCard({
             </ActionBtn>
           )}
           {!running && (
-            <ActionBtn title={t("showInFolder")} onClick={() => onOpenFolder(d)}>
+            <ActionBtn
+              title={t("showInFolder")}
+              onClick={() => {
+                if (folderJustOpened) return;
+                setFolderJustOpened(true);
+                setTimeout(() => setFolderJustOpened(false), 300);
+                onOpenFolder(d);
+              }}
+            >
               <FolderIcon width={15} height={15} />
             </ActionBtn>
           )}

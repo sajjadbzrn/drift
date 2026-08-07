@@ -44,6 +44,8 @@ const DICT: Record<Lang, Record<string, Tpl>> = {
     resumeAll: "Resume all",
     pauseAllTitle: "Pause all active downloads",
     resumeAllTitle: "Resume all paused downloads",
+    concurrent: "Concurrent",
+    concurrentTitle: (p) => `Max ${p.n} downloads at once`,
     toggleTheme: "Toggle theme",
     settings: "Settings",
 
@@ -83,6 +85,7 @@ const DICT: Record<Lang, Record<string, Tpl>> = {
     segmentedTitle: "Multi-connection download",
     speedLimitChip: "≤ {v}/s",
     speedLimitChipTitle: "Per-download speed limit",
+    queuePosTitle: (p) => `#${p.n} in queue`,
     of: "of",
     determiningSize: "determining size…",
     downloaded: (p) => `${p.v} downloaded`,
@@ -125,8 +128,11 @@ const DICT: Record<Lang, Record<string, Tpl>> = {
     couldNotCopy: "Could not copy link",
     couldNotOpenFile: "Could not open file",
     couldNotOpenFolder: "Could not open folder",
+    waitFolder: "Opening folder — wait a moment before opening another",
     deleteConfirm: (p) => `Delete "${p.name}" from your disk?`,
     removeTitle: "Remove download",
+    removedToast: "Removed {name}",
+    undo: "Undo",
     clearFinishedDeleteConfirm: (p) =>
       `Remove ${p.n} finished download${Number(p.n) === 1 ? "" : "s"}? Files will be deleted from disk.`,
     clearFinishedListConfirm: (p) =>
@@ -265,6 +271,8 @@ const DICT: Record<Lang, Record<string, Tpl>> = {
     resumeAll: "ادامه همه",
     pauseAllTitle: "توقف همه دانلودهای فعال",
     resumeAllTitle: "ادامه همه دانلودهای متوقف",
+    concurrent: "همزمان",
+    concurrentTitle: (p) => `حداکثر ${p.n} دانلود همزمان`,
     toggleTheme: "تغییر تم",
     settings: "تنظیمات",
 
@@ -346,8 +354,11 @@ const DICT: Record<Lang, Record<string, Tpl>> = {
     couldNotCopy: "کپی لینک ممکن نشد",
     couldNotOpenFile: "باز کردن فایل ممکن نشد",
     couldNotOpenFolder: "باز کردن پوشه ممکن نشد",
+    waitFolder: "در حال باز کردن پوشه — لطفاً کمی صبر کنید",
     deleteConfirm: (p) => `«${p.name}» از دیسک حذف شود؟`,
     removeTitle: "حذف دانلود",
+    removedToast: "حذف شد: {name}",
+    undo: "برگرداندن",
     clearFinishedDeleteConfirm: (p) =>
       `${p.n} دانلود کامل حذف شود؟ فایل‌ها از دیسک پاک خواهند شد.`,
     clearFinishedListConfirm: (p) => `${p.n} دانلود کامل از فهرست حذف شود؟`,

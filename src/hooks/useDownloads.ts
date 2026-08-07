@@ -20,10 +20,17 @@ export function useDownloads() {
           if (disposed) return;
           const next = e.payload;
           setDownloads((prev) => {
-            const i = prev.findIndex((d) => d.id === next.id);
-            if (i === -1) return [...prev, next];
-            if (i === 0) return [next, ...prev.slice(1)];
-            return [...prev.slice(0, i), next, ...prev.slice(i + 1)];
+            const idx = prev.findIndex((d) => d.id === next.id);
+            if (idx === -1) {
+              // New download — insert sorted by (priority, -createdAt).
+              const list = [...prev, next];
+              list.sort((a, b) => a.priority - b.priority || b.createdAt - a.createdAt);
+              return list;
+            }
+            const updated = [...prev];
+            updated[idx] = next;
+            updated.sort((a, b) => a.priority - b.priority || b.createdAt - a.createdAt);
+            return updated;
           });
         }),
       ]);

@@ -16,10 +16,16 @@ function applyI18n() {
   });
 }
 
-async function sendMessage(msg) {
+async function sendMessage(msg, retries = 0) {
   try {
     return await NS.runtime.sendMessage(msg);
   } catch (e) {
+    // MV3 service workers can be killed while the popup is open — retry once
+    // to give Chrome time to wake the worker back up.
+    if (retries < 1) {
+      await new Promise((r) => setTimeout(r, 600));
+      return sendMessage(msg, retries + 1);
+    }
     return { ok: false, error: String((e && e.message) || e) };
   }
 }
@@ -88,7 +94,8 @@ document.addEventListener("DOMContentLoaded", () => {
       result.textContent = res.fallback ? t("startedInBrowser") : t("sentToDrift");
       if (res.fallback) void refresh();
     } else {
-      result.textContent = t("failed");
+      const err = (res && res.error) ? ` (${res.error})` : "";
+      result.textContent = t("failed") + err;
     }
   });
 

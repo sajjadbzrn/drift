@@ -518,6 +518,58 @@ input {
   padding: 0 2px;
 }
 
+/* quick max-concurrent selector — card-style in sidebar bottom */
+.concurrent-section {
+  padding: 10px 10px 6px;
+  margin: 0 -2px 6px;
+  border-radius: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+
+.concurrent-label {
+  display: block;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 8px;
+}
+
+.concurrent-group {
+  display: flex;
+  gap: 4px;
+}
+
+.concurrent-chip {
+  flex: 1;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  border: 1px solid transparent;
+  background: var(--bg);
+  color: var(--text-2);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.concurrent-chip:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.concurrent-chip-on {
+  background: linear-gradient(135deg, #6366f1, #4f46e5);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
+}
+
 .sidebar-queue .btn-ghost {
   flex: 1;
   display: inline-flex;
@@ -1093,6 +1145,16 @@ input {
 
 .card-failed::before {
   background: linear-gradient(to bottom, var(--err), color-mix(in srgb, var(--err) 20%, transparent));
+}
+
+/* keyboard-selected card */
+.card-selected {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-color: var(--accent);
+  box-shadow:
+    0 0 0 1px var(--accent),
+    0 4px 16px rgba(99, 102, 241, 0.15);
 }
 
 .card-icon {

@@ -206,7 +206,7 @@ export function NewDownloadBar({
       if (!u) return;
       const now = Date.now();
       const last = recentHandoffs.get(u.url) ?? 0;
-      if (now - last < 5000) return;
+      if (now - last < 8000) return;
       recentHandoffs.set(u.url, now);
       // Silent handoff: with auto-save on there is no dialog to answer, so
       // don't yank focus away from the user's browser.
