@@ -41,6 +41,9 @@ jobs:
         with:
           workspaces: src-tauri
 
+      - name: Build native messaging host
+        run: bun scripts/build-host.mjs
+
       - name: Build release bundles
         run: bun run tauri build --bundles nsis
 

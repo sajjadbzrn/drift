@@ -31,6 +31,10 @@ impl SegmentInfo {
 pub struct DownloadInfo {
     pub id: String,
     pub url: String,
+    /// Referer header sent with the requests (set when the download was
+    /// handed over from the browser extension, for hotlink-protected files).
+    #[serde(default)]
+    pub referrer: Option<String>,
     pub filename: String,
     pub dir: String,
     pub path: String,
@@ -78,6 +82,10 @@ pub struct AppSettings {
     /// UI language: "en" | "fa". Defaults to English.
     #[serde(default)]
     pub language: String,
+    /// Chrome extension IDs allowed to talk to drift's native messaging host.
+    /// Firefox is always allowed via the extension's fixed gecko id.
+    #[serde(default)]
+    pub chrome_ext_ids: Vec<String>,
 }
 
 impl Default for AppSettings {
@@ -95,6 +103,7 @@ impl Default for AppSettings {
             auto_save: false,
             close_to_tray: true,
             language: "en".into(),
+            chrome_ext_ids: Vec::new(),
         }
     }
 }

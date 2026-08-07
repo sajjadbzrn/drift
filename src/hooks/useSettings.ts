@@ -15,6 +15,7 @@ const DEFAULTS: AppSettings = {
   lastSaveDir: null,
   autoSave: false,
   closeToTray: true,
+  chromeExtIds: [],
 };
 
 export function useSettings() {

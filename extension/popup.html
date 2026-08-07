@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <header class="head">
+      <img class="logo" src="icons/icon48.png" alt="drift" />
+      <div class="head-text">
+        <span class="title">drift</span>
+        <span class="sub" id="status-line">&hellip;</span>
+      </div>
+      <span class="dot" id="status-dot"></span>
+    </header>
+
+    <main>
+      <div id="connected-view" class="view hidden">
+        <label class="toggle-row">
+          <span class="toggle-text">
+            <span class="toggle-label" data-i18n="capture"></span>
+            <span class="toggle-desc" data-i18n="captureHint"></span>
+          </span>
+          <input type="checkbox" id="auto-capture" class="toggle-input" />
+          <span class="toggle-track"></span>
+        </label>
+        <button id="send-page" class="btn btn-primary"></button>
+        <span id="result" class="result"></span>
+      </div>
+
+      <div id="missing-view" class="view hidden">
+        <p class="msg" data-i18n="notInstalledDesc"></p>
+        <button id="install-btn" class="btn btn-primary"></button>
+      </div>
+
+      <div id="forbidden-view" class="view hidden">
+        <p class="msg" data-i18n="forbiddenDesc"></p>
+        <div class="id-row">
+          <code id="ext-id"></code>
+          <button id="copy-id" class="btn btn-ghost"></button>
+        </div>
+      </div>
+    </main>
+
+    <footer>
+      <span id="checking" class="checking hidden"></span>
+      <button id="refresh" class="btn btn-ghost btn-sm"></button>
+    </footer>
+
+    <script src="popup.js"></script>
+  </body>
+</html>

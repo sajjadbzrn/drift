@@ -30,13 +30,26 @@ function detectUrls(text: string): string[] {
   return out;
 }
 
-/** Parse drift://add?url=<encoded> deep links. */
-function parseDeepLink(raw: string): string | null {
+interface DeepLink {
+  url: string;
+  filename: string | null;
+  referrer: string | null;
+}
+
+/** Parse drift://add?url=<encoded>&filename=<encoded>&referrer=<encoded>. */
+function parseDeepLink(raw: string): DeepLink | null {
   try {
     const u = new URL(raw);
     if (u.protocol !== "drift:") return null;
     const target = u.searchParams.get("url");
-    return target && looksLikeUrl(target) ? target : null;
+    if (!target || !looksLikeUrl(target)) return null;
+    const filename = u.searchParams.get("filename");
+    const referrer = u.searchParams.get("referrer");
+    return {
+      url: target,
+      filename: filename && filename.trim() ? filename : null,
+      referrer: referrer && referrer.trim() ? referrer : null,
+    };
   } catch {
     return null;
   }
@@ -54,7 +67,12 @@ export function NewDownloadBar({
   existingUrls: Set<string>;
   hit: ClipboardHit | null;
   onHitHandled: () => void;
-  onStart: (url: string, path: string, speedLimit: number | null) => void;
+  onStart: (
+    url: string,
+    path: string,
+    speedLimit: number | null,
+    referrer?: string | null,
+  ) => void;
   notify: (msg: string, kind: "success" | "error" | "info") => void;
 }) {
   const t = useI18n();
@@ -99,7 +117,10 @@ export function NewDownloadBar({
     }
   };
 
-  const startFlow = async (targetUrl: string) => {
+  const startFlow = async (
+    targetUrl: string,
+    opts?: { filename?: string | null; referrer?: string | null },
+  ) => {
     const clean = targetUrl.trim();
     if (!looksLikeUrl(clean) || !clean.startsWith("http")) {
       notify(t("invalidUrl"), "error");
@@ -111,21 +132,26 @@ export function NewDownloadBar({
     }
     setProbing(true);
     try {
-      const meta = await api.probeUrl(clean);
+      // Send the referrer (from the browser extension handoff) so the probe
+      // works for hotlink-protected files.
+      const meta = await api.probeUrl(clean, opts?.referrer ?? undefined);
       let chosen: string;
+      // Prefer the hint from the browser when the probe only found a generic name.
+      const probeName = meta.filename || "download";
+      const name = opts?.filename && probeName === "download" ? opts.filename : probeName;
       if (settings.autoSave && folder) {
         // Auto-save: skip the dialog, let the backend pick a unique name.
-        chosen = joinPath(folder, meta.filename || "download");
+        chosen = joinPath(folder, name);
       } else {
         const baseDir = folder ?? "";
         const r = await save({
           title: t("saveAs"),
-          defaultPath: joinPath(baseDir, meta.filename || "download"),
+          defaultPath: joinPath(baseDir, name),
         });
         if (typeof r !== "string") return; // user cancelled
         chosen = r;
       }
-      onStart(clean, chosen, limitBytes());
+      onStart(clean, chosen, limitBytes(), opts?.referrer ?? null);
       setUrl("");
       setLimit("");
       onHitHandled();
@@ -160,20 +186,42 @@ export function NewDownloadBar({
   useEffect(() => {
     startFlowRef.current = startFlow;
   });
+  // Mirror settings.autoSave so the deep-link listener (registered once) never
+  // needs to re-run when settings change.
+  const autoSaveRef = useRef(settings.autoSave);
+  useEffect(() => {
+    autoSaveRef.current = settings.autoSave;
+  });
 
   useEffect(() => {
     let disposed = false;
     let unlisten: (() => void) | null = null;
+    // Guard against duplicate deliveries of the same URL. On cold start the
+    // launch URL can arrive both via getCurrent() and as a live event, and a
+    // page can re-trigger a download after the browser copy is cancelled.
+    // Without this, a single handoff could open several save dialogs at once.
+    const recentHandoffs = new Map<string, number>();
     const handle = (raw: string) => {
       const u = parseDeepLink(raw);
       if (!u) return;
-      try {
-        void getCurrentWindow().show();
-        void getCurrentWindow().setFocus();
-      } catch {
-        /* window API unavailable */
+      const now = Date.now();
+      const last = recentHandoffs.get(u.url) ?? 0;
+      if (now - last < 5000) return;
+      recentHandoffs.set(u.url, now);
+      // Silent handoff: with auto-save on there is no dialog to answer, so
+      // don't yank focus away from the user's browser.
+      if (!autoSaveRef.current) {
+        try {
+          void getCurrentWindow().show();
+          void getCurrentWindow().setFocus();
+        } catch {
+          /* window API unavailable */
+        }
       }
-      void startFlowRef.current(u);
+      void startFlowRef.current(u.url, {
+        filename: u.filename,
+        referrer: u.referrer,
+      });
     };
     (async () => {
       try {

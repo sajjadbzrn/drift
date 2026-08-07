@@ -1,0 +1,25 @@
+{
+  "appName": { "message": "drift companion" },
+  "extDesc": {
+    "message": "Hand downloads to the drift download manager — or download in the browser when drift isn't installed."
+  },
+  "connectedTitle": { "message": "drift is connected" },
+  "notInstalledTitle": { "message": "drift is not installed" },
+  "forbiddenTitle": { "message": "Allow this extension in drift" },
+  "notInstalledDesc": {
+    "message": "Downloads stay in your browser for now. Install drift to capture them in one place — with pause/resume, speed limits and segmented downloads."
+  },
+  "installDrift": { "message": "Install drift" },
+  "forbiddenDesc": {
+    "message": "Open drift → Settings → Browser integration and paste this extension ID, then restart the browser:"
+  },
+  "copyId": { "message": "Copy" },
+  "capture": { "message": "Capture downloads with drift" },
+  "captureHint": { "message": "Automatically send browser downloads to drift." },
+  "sendPage": { "message": "Send current page to drift" },
+  "startedInBrowser": { "message": "Started the download in your browser." },
+  "sentToDrift": { "message": "Sent to drift." },
+  "failed": { "message": "Something went wrong." },
+  "checking": { "message": "Checking for drift…" },
+  "refresh": { "message": "Check again" }
+}

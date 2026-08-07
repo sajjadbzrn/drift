@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
-import type { AppSettings, Theme } from "../types";
+import type { AppSettings, NativeHostStatus, Theme } from "../types";
 import { formatBytes } from "../lib/format";
+import { api } from "../lib/ipc";
 import { XIcon } from "../lib/icons";
 import { useI18n, num } from "../lib/i18n";
 import type { UpdaterPhase } from "../hooks/useUpdater";
@@ -101,6 +102,8 @@ export function SettingsModal({
   const [version, setVersion] = useState("0.1.0");
   const [license, setLicense] = useState<string | null>(null);
   const [licenseOpen, setLicenseOpen] = useState(false);
+  const [hostStatus, setHostStatus] = useState<NativeHostStatus | null>(null);
+  const [extIdsText, setExtIdsText] = useState("");
 
   useEffect(() => {
     if (!open) return;
@@ -109,7 +112,27 @@ export function SettingsModal({
       .catch(() => {
         /* not running inside Tauri */
       });
+    setExtIdsText(settings.chromeExtIds.join(", "));
+    api
+      .getNativeHostStatus()
+      .then(setHostStatus)
+      .catch(() => setHostStatus(null));
   }, [open]);
+
+  const saveExtIds = () => {
+    const ids = extIdsText
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    update({ chromeExtIds: ids });
+    // Re-read the host status once the backend has re-registered the manifest.
+    window.setTimeout(() => {
+      api
+        .getNativeHostStatus()
+        .then(setHostStatus)
+        .catch(() => {});
+    }, 400);
+  };
 
   const toggleLicense = () => {
     const next = !licenseOpen;
@@ -330,6 +353,45 @@ export function SettingsModal({
               label={t("autoSave")}
               desc={t("autoSaveDesc")}
             />
+          </section>
+
+          <section>
+            <span className="section-label">{t("browserIntegration")}</span>
+            <div className="setting-row">
+              <span className="setting-text">
+                <span className="setting-label">{t("extensionHost")}</span>
+                <span className="setting-desc">{t("extensionHostDesc")}</span>
+              </span>
+              <span
+                className={`host-status${hostStatus?.registered ? " host-status-ok" : " host-status-off"}`}
+                title={hostStatus?.hostPath ?? undefined}
+              >
+                {hostStatus
+                  ? hostStatus.registered
+                    ? t("hostRegistered")
+                    : t("hostNotRegistered")
+                  : "…"}
+              </span>
+            </div>
+            <div className="setting-row">
+              <span className="setting-text">
+                <span className="setting-label">{t("chromeExtIds")}</span>
+                <span className="setting-desc">{t("chromeExtIdsDesc")}</span>
+              </span>
+            </div>
+            <div className="ext-ids-row">
+              <input
+                className="ext-ids-input"
+                value={extIdsText}
+                onChange={(e) => setExtIdsText(e.target.value)}
+                placeholder="abcdefghijklmnopabcdefghijklmnop"
+                spellCheck={false}
+                aria-label={t("chromeExtIds")}
+              />
+              <button className="btn btn-primary btn-sm" onClick={saveExtIds}>
+                {t("save")}
+              </button>
+            </div>
           </section>
 
           <section>

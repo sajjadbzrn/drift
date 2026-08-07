@@ -1,14 +1,28 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { AppSettings, DownloadInfo, UrlMeta } from "../types";
+import type {
+  AppSettings,
+  DownloadInfo,
+  NativeHostStatus,
+  UrlMeta,
+} from "../types";
 
 export const api = {
-  probeUrl: (url: string) => invoke<UrlMeta>("probe_url", { url }),
+  probeUrl: (url: string, referrer?: string) =>
+    invoke<UrlMeta>("probe_url", { url, referrer }),
   startDownload: (
     url: string,
     path: string,
     speedLimit: number | null,
     segmented: boolean | null,
-  ) => invoke<DownloadInfo>("start_download", { url, path, speedLimit, segmented }),
+    referrer?: string | null,
+  ) =>
+    invoke<DownloadInfo>("start_download", {
+      url,
+      path,
+      speedLimit,
+      segmented,
+      referrer: referrer ?? null,
+    }),
   pause: (id: string) => invoke<void>("pause_download", { id }),
   resume: (id: string) => invoke<void>("resume_download", { id }),
   retry: (id: string) => invoke<void>("retry_download", { id }),
@@ -21,6 +35,7 @@ export const api = {
   getDownloads: () => invoke<DownloadInfo[]>("get_downloads"),
   getSettings: () => invoke<AppSettings>("get_settings"),
   setSettings: (settings: AppSettings) => invoke<void>("set_settings", { settings }),
+  getNativeHostStatus: () => invoke<NativeHostStatus>("get_native_host_status"),
 };
 
 export const EVENTS = {

@@ -1,7 +1,9 @@
 mod download;
+mod host;
 mod models;
 
 use crate::download::DownloadManager;
+use crate::host::NativeHostStatus;
 use crate::models::{AppSettings, DownloadInfo, UrlMeta};
 use std::sync::Arc;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
@@ -10,8 +12,12 @@ use tauri::{Emitter, Manager, State};
 use tauri_plugin_deep_link::DeepLinkExt;
 
 #[tauri::command]
-async fn probe_url(state: State<'_, Arc<DownloadManager>>, url: String) -> Result<UrlMeta, String> {
-    download::probe_url(state.client(), &url).await
+async fn probe_url(
+    state: State<'_, Arc<DownloadManager>>,
+    url: String,
+    referrer: Option<String>,
+) -> Result<UrlMeta, String> {
+    download::probe_url(state.client(), &url, referrer.as_deref()).await
 }
 
 #[tauri::command]
@@ -21,8 +27,12 @@ async fn start_download(
     path: String,
     speed_limit: Option<u64>,
     segmented: Option<bool>,
+    referrer: Option<String>,
 ) -> Result<DownloadInfo, String> {
-    state.inner().start_download(url, path, speed_limit, segmented).await
+    state
+        .inner()
+        .start_download(url, path, speed_limit, segmented, referrer)
+        .await
 }
 
 #[tauri::command]
@@ -81,9 +91,17 @@ fn get_settings(state: State<'_, Arc<DownloadManager>>) -> AppSettings {
 
 #[tauri::command]
 fn set_settings(state: State<'_, Arc<DownloadManager>>, settings: AppSettings) -> Result<(), String> {
-    state.set_settings(settings);
+    let app = state.inner().app.clone();
+    state.set_settings(settings.clone());
     state.persist();
+    // Keep the native messaging host manifest in sync (Chrome extension IDs).
+    let _ = host::ensure_registered(&app, &settings);
     Ok(())
+}
+
+#[tauri::command]
+fn get_native_host_status(state: State<'_, Arc<DownloadManager>>) -> NativeHostStatus {
+    host::status(&state.inner().app)
 }
 
 fn show_main_window(app: &tauri::AppHandle) {
@@ -217,6 +235,9 @@ pub fn run() {
         })
         .setup(|app| {
             let (infos, settings) = DownloadManager::load_state(app.handle());
+            // Register the native messaging host so the browser extension can
+            // detect drift and hand downloads to it.
+            let _ = host::ensure_registered(app.handle(), &settings);
             let manager = Arc::new(DownloadManager::new(app.handle().clone(), settings));
             for info in infos {
                 manager.restore_entry(info);
@@ -251,7 +272,8 @@ pub fn run() {
             reorder_download,
             get_downloads,
             get_settings,
-            set_settings
+            set_settings,
+            get_native_host_status
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

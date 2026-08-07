@@ -1,9 +1,12 @@
 [package]
 name = "drift"
-version = "0.1.0"
+version = "0.1.1"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
+# drift-host is a second binary in this package; make `cargo run` /
+# `tauri dev` launch the app itself, not the native messaging relay.
+default-run = "drift"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -13,6 +16,14 @@ edition = "2021"
 # This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
 name = "drift_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
+
+# Native messaging host: a tiny relay the Chrome/Firefox extension talks to.
+# Its presence tells the extension drift is installed, and every download
+# request is forwarded to drift through the drift:// deep link. It is built
+# separately and bundled via `bundle.externalBin` (see scripts/build-host.mjs).
+[[bin]]
+name = "drift-host"
+path = "src/bin/drift_host.rs"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -34,4 +45,9 @@ tokio = { version = "1", features = ["fs", "io-util", "sync", "time", "macros"] 
 futures-util = "0.3"
 uuid = { version = "1", features = ["v4"] }
 percent-encoding = "2"
+# Native messaging host registration (Windows registry keys)
+winreg = "0.52"
+# ShellExecuteW used by the drift-host relay
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 

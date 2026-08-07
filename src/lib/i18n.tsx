@@ -215,6 +215,18 @@ const DICT: Record<Lang, Record<string, Tpl>> = {
     releaseNotes: "Release notes",
     updateToast: (p) => `Update v${p.version} is available`,
 
+    // browser integration (native messaging host)
+    browserIntegration: "Browser integration",
+    extensionHost: "Extension host",
+    extensionHostDesc:
+      "Lets the Chrome/Firefox extension detect drift and hand downloads to it.",
+    hostRegistered: "Registered",
+    hostNotRegistered: "Not registered",
+    chromeExtIds: "Chrome extension ID",
+    chromeExtIdsDesc:
+      "Paste your Chrome extension's ID (chrome://extensions → this extension) so Chrome is allowed to talk to drift. Firefox connects automatically.",
+    save: "Save",
+
     // toasts
     dismiss: "Dismiss",
   },
@@ -419,6 +431,18 @@ const DICT: Record<Lang, Record<string, Tpl>> = {
     updateFailed: "به‌روزرسانی ناموفق بود: {err}",
     releaseNotes: "یادداشت‌های نسخه",
     updateToast: (p) => `نسخه ${p.version} در دسترس است`,
+
+    // browser integration (native messaging host)
+    browserIntegration: "اتصال به مرورگر",
+    extensionHost: "میزبان افزونه",
+    extensionHostDesc:
+      "به افزونه کروم/فایرفاکس اجازه می‌دهد دریفت را شناسایی و دانلودها را به آن ارسال کند.",
+    hostRegistered: "ثبت شده",
+    hostNotRegistered: "ثبت نشده",
+    chromeExtIds: "شناسه افزونه کروم",
+    chromeExtIdsDesc:
+      "شناسه افزونه کروم خود را وارد کنید (chrome://extensions → همین افزونه) تا کروم اجازه ارتباط با دریفت را داشته باشد. فایرفاکس خودکار متصل می‌شود.",
+    save: "ذخیره",
 
     // toasts
     dismiss: "بستن",

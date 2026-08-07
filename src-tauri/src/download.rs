@@ -199,6 +199,7 @@ impl DownloadManager {
         path: String,
         speed_limit: Option<u64>,
         segmented: Option<bool>,
+        referrer: Option<String>,
     ) -> Result<DownloadInfo, String> {
         let url = url.trim().to_string();
         if !url.starts_with("http://") && !url.starts_with("https://") {
@@ -228,7 +229,7 @@ impl DownloadManager {
             .unwrap_or("download")
             .to_string();
 
-        let meta = probe_url(&self.client, &url).await?;
+        let meta = probe_url(&self.client, &url, referrer.as_deref()).await?;
 
         let settings = self.settings.lock().unwrap().clone();
         let want_segmented = segmented.unwrap_or(settings.segmented)
@@ -265,6 +266,7 @@ impl DownloadManager {
         let info = DownloadInfo {
             id: Uuid::new_v4().to_string(),
             url: url.clone(),
+            referrer,
             filename: filename.clone(),
             dir: dir.display().to_string(),
             path: final_path.display().to_string(),
@@ -606,7 +608,7 @@ impl DownloadManager {
                 _ => unreachable!(),
             };
         }
-        let (url, segmented, supports_ranges, speed_limit, total_size) = {
+        let (url, segmented, supports_ranges, speed_limit, total_size, referrer) = {
             let info = entry.info.lock().unwrap();
             (
                 info.url.clone(),
@@ -614,10 +616,14 @@ impl DownloadManager {
                 info.supports_ranges,
                 info.speed_limit,
                 info.total_size,
+                info.referrer.clone(),
             )
         };
         if segmented {
-            match self.attempt_segmented(entry.clone(), url.clone(), speed_limit).await {
+            match self
+                .attempt_segmented(entry.clone(), url.clone(), speed_limit, referrer.clone())
+                .await
+            {
                 AttemptOutcome::RangeFallback => {
                     // Server refused ranges mid-flight — fall back to a single stream.
                     {
@@ -629,13 +635,15 @@ impl DownloadManager {
                     }
                     self.cleanup_parts(&entry);
                     self.emit_progress(&entry);
-                    self.attempt_single(entry, url, supports_ranges, speed_limit, total_size)
-                        .await
+                    self.attempt_single(
+                        entry, url, supports_ranges, speed_limit, total_size, referrer,
+                    )
+                    .await
                 }
                 other => other,
             }
         } else {
-            self.attempt_single(entry, url, supports_ranges, speed_limit, total_size)
+            self.attempt_single(entry, url, supports_ranges, speed_limit, total_size, referrer)
                 .await
         }
     }
@@ -647,6 +655,7 @@ impl DownloadManager {
         supports_ranges: bool,
         speed_limit: u64,
         total_size: Option<u64>,
+        referrer: Option<String>,
     ) -> AttemptOutcome {
         let (path, _dir) = {
             let info = entry.info.lock().unwrap();
@@ -665,6 +674,9 @@ impl DownloadManager {
         }
 
         let mut req = self.client.get(&url);
+        if let Some(r) = referrer.as_deref() {
+            req = req.header(header::REFERER, r);
+        }
         if append {
             req = req.header(header::RANGE, format!("bytes={start}-"));
         }
@@ -795,6 +807,7 @@ impl DownloadManager {
         entry: Arc<DownloadEntry>,
         url: String,
         speed_limit: u64,
+        referrer: Option<String>,
     ) -> AttemptOutcome {
         let path = entry.info.lock().unwrap().path.clone();
         let final_path = PathBuf::from(&path);
@@ -854,10 +867,11 @@ impl DownloadManager {
         for seg in &segments {
             let entry = entry.clone();
             let url = url.clone();
+            let referrer = referrer.clone();
             let client = self.client.clone();
             let seg = seg.clone();
             handles.push(tauri::async_runtime::spawn(async move {
-                download_segment(client, url, entry, seg, per_seg).await
+                download_segment(client, url, entry, seg, per_seg, referrer).await
             }));
         }
 
@@ -1094,14 +1108,18 @@ async fn download_segment(
     entry: Arc<DownloadEntry>,
     seg: SegmentInfo,
     per_seg_limit: u64,
+    referrer: Option<String>,
 ) -> Result<(), AttemptError> {
     let final_path = PathBuf::from(entry.info.lock().unwrap().path.clone());
     let part = part_path(&final_path, seg.index);
     let start_offset = seg.start + seg.received;
 
-    let req = client
+    let mut req = client
         .get(&url)
         .header(header::RANGE, format!("bytes={start_offset}-{}", seg.end));
+    if let Some(r) = referrer.as_deref() {
+        req = req.header(header::REFERER, r);
+    }
     let resp = match req.send().await {
         Ok(r) => r,
         Err(e) => return Err(AttemptError::Failed(e.to_string())),
@@ -1175,8 +1193,12 @@ async fn download_segment(
 
 // ------------------------------------------------------------------ probing
 
-pub async fn probe_url(client: &Client, url: &str) -> Result<UrlMeta, String> {
-    let head = client.head(url).send().await;
+pub async fn probe_url(client: &Client, url: &str, referrer: Option<&str>) -> Result<UrlMeta, String> {
+    let mut head_req = client.head(url);
+    if let Some(r) = referrer {
+        head_req = head_req.header(header::REFERER, r);
+    }
+    let head = head_req.send().await;
     let mut filename: Option<String> = None;
     let mut content_type = None;
     let mut size: Option<u64> = None;
@@ -1209,12 +1231,11 @@ pub async fn probe_url(client: &Client, url: &str) -> Result<UrlMeta, String> {
     // hosts), sniff the real response with a tiny ranged GET so the UI can
     // show total size, remaining bytes, and ETA right away.
     if size.is_none() {
-        let resp = client
-            .get(url)
-            .header(header::RANGE, "bytes=0-0")
-            .send()
-            .await
-            .map_err(|e| e.to_string())?;
+        let mut sniff = client.get(url).header(header::RANGE, "bytes=0-0");
+        if let Some(r) = referrer {
+            sniff = sniff.header(header::REFERER, r);
+        }
+        let resp = sniff.send().await.map_err(|e| e.to_string())?;
         let status = resp.status();
         if status == StatusCode::PARTIAL_CONTENT {
             supports_ranges = true;
@@ -1457,7 +1478,7 @@ mod tests {
         let addr = serve_no_length_head(12_345);
         let client = Client::new();
         let meta = tauri::async_runtime::block_on(async move {
-            probe_url(&client, &format!("http://{addr}/video.mp4")).await
+            probe_url(&client, &format!("http://{addr}/video.mp4"), None).await
         })
         .expect("probe should succeed");
         assert_eq!(meta.size, Some(12_345), "size should be learned via ranged GET");
@@ -1483,7 +1504,7 @@ mod tests {
         });
         let client = Client::new();
         let meta = tauri::async_runtime::block_on(async move {
-            probe_url(&client, &format!("http://{addr}/a.bin")).await
+            probe_url(&client, &format!("http://{addr}/a.bin"), None).await
         })
         .expect("probe should succeed");
         assert_eq!(meta.size, Some(999));

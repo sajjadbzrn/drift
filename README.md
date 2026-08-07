@@ -23,9 +23,40 @@ The frontend runs on `http://localhost:1420` (Vite). The Rust backend lives in
 - Auto-retry with exponential backoff
 - Clipboard URL detection, batch downloads (one URL per line), `drift://` deep links
 - Native notifications, tray support (close-to-tray), queue reordering
+- **Browser extension (Chrome + Firefox)** — `drift companion` hands downloads
+  to drift automatically when drift is installed, or downloads in the browser
+  with a subtle install suggestion when it isn't (see `extension/`).
 - **English and Persian (فارسی) UI** — switch in Settings → Appearance → Language.
   Persian mode enables RTL layout, the Vazirmatn font and Persian digits.
 - **In-app updates** — Settings → Updates, plus a silent check on launch.
+
+## Browser extension (`extension/`)
+
+A single Manifest V3 codebase for Chrome and Firefox that behaves like IDM's
+extension. See [`extension/README.md`](extension/README.md) for details.
+
+How it works:
+
+1. On first run, drift registers a **native messaging host** (`drift-host`, a
+   tiny relay) with Chrome and Firefox — Settings → **Browser integration**
+   shows the status. Firefox is allowed automatically; Chrome needs your
+   extension ID pasted once (open `chrome://extensions`, copy the ID, paste
+   it into drift's settings, restart the browser).
+2. The extension pings the host to detect drift. If drift is installed, every
+   http(s) download is handed over automatically (the browser copy is
+   cancelled once drift picks it up); right-click → *Download link/page with
+   drift* also works.
+3. If drift isn't installed, browser downloads proceed untouched and the
+   extension only shows a small toolbar badge + an install button in its
+   popup, at most once a day.
+
+Development:
+
+```bash
+bun extension/icons/generate.mjs   # one-time icon generation
+# Chrome: chrome://extensions → Load unpacked → extension/
+# Firefox: about:debugging → Load Temporary Add-on → extension/manifest.json
+```
 
 ## Releasing a new version (in-app updates)
 
@@ -57,12 +88,14 @@ git tag v0.2.0 && git push && git push --tags
 ```
 
 The GitHub Actions workflow (`.github/workflows/release.yml`) then builds the
-NSIS installer, signs it, generates `latest.json` and uploads everything to the
+native messaging host (`bun scripts/build-host.mjs`), builds the NSIS
+installer, signs it, generates `latest.json` and uploads everything to the
 release. Users see "Update v0.2.0 is available" and update in place.
 
 ### Manual release (no GitHub Actions)
 
 ```bash
+bun scripts/build-host.mjs                   # build + place drift-host for the bundle
 bun run tauri build --bundles nsis            # needs TAURI_SIGNING_PRIVATE_KEY set
 bun scripts/make-update-json.mjs --version 0.2.0 --owner <owner> --repo <repo>
 ```

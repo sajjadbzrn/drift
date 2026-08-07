@@ -204,9 +204,14 @@ function App() {
   );
 
   const startDownload = useCallback(
-    async (url: string, path: string, speedLimit: number | null) => {
+    async (
+      url: string,
+      path: string,
+      speedLimit: number | null,
+      referrer?: string | null,
+    ) => {
       try {
-        const d = await api.startDownload(url, path, speedLimit, null);
+        const d = await api.startDownload(url, path, speedLimit, null, referrer);
         notify(t("downloadingToast", { name: d.filename }), "success");
         const dir = parentDir(path);
         if (dir && dir !== settings.lastSaveDir) update({ lastSaveDir: dir });
