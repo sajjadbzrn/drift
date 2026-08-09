@@ -2,15 +2,30 @@
   "manifest_version": 3,
   "name": "__MSG_appName__",
   "description": "__MSG_extDesc__",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "default_locale": "en",
   "permissions": [
     "downloads",
     "nativeMessaging",
     "contextMenus",
     "storage",
-    "tabs"
+    "tabs",
+    "activeTab",
+    "scripting",
+    "cookies"
   ],
+  "host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ],
+  "commands": {
+    "send-page-to-drift": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+D"
+      },
+      "description": "Send the current page to drift"
+    }
+  },
   "background": {
     "service_worker": "background.js"
   },

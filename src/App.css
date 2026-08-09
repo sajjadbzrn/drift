@@ -2226,6 +2226,74 @@ input {
 }
 
 /* ============================================================
+   multi-select toolbar
+   ============================================================ */
+.selection-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  margin-bottom: 14px;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--accent) 42%, var(--border));
+  background: linear-gradient(120deg, var(--accent-soft), var(--accent-soft-2));
+  box-shadow: 0 0 22px color-mix(in srgb, var(--accent) 10%, transparent);
+  animation: rise 0.22s ease both;
+}
+
+.selection-count {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.selection-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.selection-actions .btn-ghost {
+  height: 30px;
+  padding: 0 10px;
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ============================================================
+   drag & drop queue reorder
+   ============================================================ */
+.card-dragging {
+  opacity: 0.45;
+  transform: scale(0.985);
+  pointer-events: none;
+}
+
+.card-drop-target {
+  border-color: var(--accent) !important;
+  box-shadow:
+    0 0 0 2px var(--accent-soft),
+    0 0 26px color-mix(in srgb, var(--accent) 24%, transparent) !important;
+}
+
+/* ============================================================
+   speed-limit editor (modal)
+   ============================================================ */
+.limit-edit-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+/* ============================================================
    Persian (fa) — Vazirmatn + digit support
    ============================================================ */
 [lang="fa"] body {

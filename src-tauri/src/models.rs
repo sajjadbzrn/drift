@@ -35,6 +35,10 @@ pub struct DownloadInfo {
     /// handed over from the browser extension, for hotlink-protected files).
     #[serde(default)]
     pub referrer: Option<String>,
+    /// Cookie header value to send with the requests (forwarded by the
+    /// browser extension for login-protected sites).
+    #[serde(default)]
+    pub cookies: Option<String>,
     pub filename: String,
     pub dir: String,
     pub path: String,
@@ -86,6 +90,10 @@ pub struct AppSettings {
     /// Firefox is always allowed via the extension's fixed gecko id.
     #[serde(default)]
     pub chrome_ext_ids: Vec<String>,
+    /// Custom User-Agent sent with download/probe requests. Empty = the
+    /// built-in "drift/<version>" agent. Some sites block unknown agents.
+    #[serde(default)]
+    pub user_agent: String,
 }
 
 impl Default for AppSettings {
@@ -104,6 +112,7 @@ impl Default for AppSettings {
             close_to_tray: true,
             language: "en".into(),
             chrome_ext_ids: Vec::new(),
+            user_agent: String::new(),
         }
     }
 }

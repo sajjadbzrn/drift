@@ -16,6 +16,7 @@ const DEFAULTS: AppSettings = {
   autoSave: false,
   closeToTray: true,
   chromeExtIds: [],
+  userAgent: "",
 };
 
 export function useSettings() {

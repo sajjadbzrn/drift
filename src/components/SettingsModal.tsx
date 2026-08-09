@@ -104,6 +104,7 @@ export function SettingsModal({
   const [licenseOpen, setLicenseOpen] = useState(false);
   const [hostStatus, setHostStatus] = useState<NativeHostStatus | null>(null);
   const [extIdsText, setExtIdsText] = useState("");
+  const [uaText, setUaText] = useState("");
 
   useEffect(() => {
     if (!open) return;
@@ -113,6 +114,7 @@ export function SettingsModal({
         /* not running inside Tauri */
       });
     setExtIdsText(settings.chromeExtIds.join(", "));
+    setUaText(settings.userAgent);
     api
       .getNativeHostStatus()
       .then(setHostStatus)
@@ -316,6 +318,37 @@ export function SettingsModal({
               max={8}
               onChange={(v) => update({ maxConcurrent: Math.round(v) })}
             />
+          </section>
+
+          <section>
+            <span className="section-label">{t("network")}</span>
+            <div className="setting-row">
+              <span className="setting-text">
+                <span className="setting-label">{t("userAgent")}</span>
+                <span className="setting-desc">{t("userAgentDesc")}</span>
+              </span>
+            </div>
+            <div className="ext-ids-row">
+              <input
+                className="ext-ids-input"
+                value={uaText}
+                onChange={(e) => setUaText(e.target.value)}
+                placeholder={t("userAgentPlaceholder")}
+                spellCheck={false}
+                aria-label={t("userAgent")}
+              />
+              <button
+                className="btn btn-ghost btn-sm"
+                onClick={() => update({ userAgent: "" })}
+                disabled={!settings.userAgent}
+                title={t("uaReset")}
+              >
+                {t("uaReset")}
+              </button>
+              <button className="btn btn-primary btn-sm" onClick={() => update({ userAgent: uaText.trim() })}>
+                {t("save")}
+              </button>
+            </div>
           </section>
 
           <section>

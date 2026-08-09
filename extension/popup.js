@@ -50,6 +50,7 @@ async function refresh() {
     dot.className = "dot dot-ok";
     $("status-line").textContent = t("connectedTitle");
     $("auto-capture").checked = !!(st && st.autoCapture);
+    $("send-cookies").checked = !!(st && st.sendCookies);
     show("connected-view");
   } else if (state === "forbidden") {
     dot.className = "dot dot-warn";
@@ -67,12 +68,25 @@ document.addEventListener("DOMContentLoaded", () => {
   applyI18n();
   $("install-btn").textContent = t("installDrift");
   $("send-page").textContent = t("sendPage");
+  $("open-drift").textContent = t("openDrift");
   $("copy-id").textContent = t("copyId");
   $("refresh").textContent = t("refresh");
   $("checking").textContent = t("checking");
 
   $("auto-capture").addEventListener("change", (e) => {
     void sendMessage({ type: "setAutoCapture", value: e.target.checked });
+  });
+
+  $("send-cookies").addEventListener("change", (e) => {
+    void sendMessage({ type: "setSendCookies", value: e.target.checked });
+  });
+
+  $("open-drift").addEventListener("click", () => {
+    const result = $("result");
+    result.textContent = t("checking");
+    void sendMessage({ type: "openDrift" }).then((res) => {
+      result.textContent = res && res.ok ? t("openedDrift") : t("failed");
+    });
   });
 
   $("send-page").addEventListener("click", async () => {

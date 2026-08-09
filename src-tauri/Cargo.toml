@@ -1,6 +1,6 @@
 [package]
 name = "drift"
-version = "0.1.2"
+version = "0.2.0"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
@@ -49,5 +49,5 @@ percent-encoding = "2"
 winreg = "0.52"
 # ShellExecuteW used by the drift-host relay
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 

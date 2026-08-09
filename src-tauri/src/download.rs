@@ -1,13 +1,11 @@
-use crate::models::{
-    status, AppSettings, DownloadInfo, SegmentInfo, UrlMeta,
-};
+use crate::models::{status, AppSettings, DownloadInfo, SegmentInfo, UrlMeta};
 use futures_util::StreamExt;
 use percent_encoding::percent_decode_str;
 use reqwest::{header, Client, StatusCode};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU8, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicU8, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager};
@@ -76,7 +74,7 @@ enum AttemptError {
 
 pub struct DownloadManager {
     pub app: AppHandle,
-    pub client: Client,
+    client: Mutex<Client>,
     pub entries: Mutex<HashMap<String, Arc<DownloadEntry>>>,
     pub semaphore: Arc<Mutex<Arc<tokio::sync::Semaphore>>>,
     pub settings: Mutex<AppSettings>,
@@ -84,18 +82,29 @@ pub struct DownloadManager {
     dirty: AtomicU8, // 0 = clean, 1 = dirty
 }
 
+/// Build the shared HTTP client, honoring the configured User-Agent. An empty
+/// UA falls back to the built-in `drift/<version>` agent (some servers block
+/// unknown agents, so users can override it in Settings → Network).
+fn build_client(user_agent: &str) -> Client {
+    let ua = if user_agent.trim().is_empty() {
+        format!("drift/{}", env!("CARGO_PKG_VERSION"))
+    } else {
+        user_agent.trim().to_string()
+    };
+    Client::builder()
+        .user_agent(ua)
+        .connect_timeout(Duration::from_secs(20))
+        .redirect(reqwest::redirect::Policy::limited(10))
+        .build()
+        .unwrap_or_default()
+}
+
 impl DownloadManager {
     pub fn new(app: AppHandle, settings: AppSettings) -> Self {
-        let client = Client::builder()
-            .user_agent(format!("drift/{}", env!("CARGO_PKG_VERSION")))
-            .connect_timeout(Duration::from_secs(20))
-            .redirect(reqwest::redirect::Policy::limited(10))
-            .build()
-            .unwrap_or_default();
         let sem = Arc::new(tokio::sync::Semaphore::new(settings.max_concurrent.max(1)));
         Self {
             app,
-            client,
+            client: Mutex::new(build_client(&settings.user_agent)),
             entries: Mutex::new(HashMap::new()),
             semaphore: Arc::new(Mutex::new(sem)),
             settings: Mutex::new(settings),
@@ -104,8 +113,10 @@ impl DownloadManager {
         }
     }
 
-    pub fn client(&self) -> &Client {
-        &self.client
+    /// Clone of the shared HTTP client (cloning a reqwest client is cheap —
+    /// the connection pool is shared). Rebuilt when the User-Agent changes.
+    pub fn client(&self) -> Client {
+        self.client.lock().unwrap().clone()
     }
 
     // ---------------------------------------------------------------- state
@@ -122,7 +133,9 @@ impl DownloadManager {
             .and_then(|s| match serde_json::from_str(&s) {
                 Ok(v) => Some(v),
                 Err(e) => {
-                    eprintln!("drift: corrupt downloads.json ({e}) — backing up and starting fresh");
+                    eprintln!(
+                        "drift: corrupt downloads.json ({e}) — backing up and starting fresh"
+                    );
                     let _ = fs::rename(&dl_path, dir.join("downloads.json.bak"));
                     None
                 }
@@ -180,6 +193,14 @@ impl DownloadManager {
             .unwrap()
             .values()
             .map(|e| e.info.lock().unwrap().clone())
+            // Cookies (session tokens from the browser) are never written to
+            // disk — they live in memory only, for the current session's
+            // requests. A restart simply means re-handing the download from
+            // the browser.
+            .map(|mut i| {
+                i.cookies = None;
+                i
+            })
             .collect();
         let dir = self.app.path().app_data_dir().unwrap_or_default();
         let _ = fs::create_dir_all(&dir);
@@ -233,6 +254,7 @@ impl DownloadManager {
         speed_limit: Option<u64>,
         segmented: Option<bool>,
         referrer: Option<String>,
+        cookies: Option<String>,
     ) -> Result<DownloadInfo, String> {
         let url = url.trim().to_string();
         if !url.starts_with("http://") && !url.starts_with("https://") {
@@ -262,7 +284,26 @@ impl DownloadManager {
             .unwrap_or("download")
             .to_string();
 
-        let meta = probe_url(&self.client, &url, referrer.as_deref()).await?;
+        let meta = probe_url(
+            &self.client(),
+            &url,
+            referrer.as_deref(),
+            cookies.as_deref(),
+        )
+        .await?;
+
+        // Fail fast (with a clear message) when the disk can't hold the file.
+        if let Some(size) = meta.size {
+            if let Some(free) = free_space(&dir) {
+                if free < size {
+                    return Err(format!(
+                        "Not enough disk space: need {}, only {} free",
+                        fmt_bytes(size),
+                        fmt_bytes(free)
+                    ));
+                }
+            }
+        }
 
         let settings = self.settings.lock().unwrap().clone();
         let want_segmented = segmented.unwrap_or(settings.segmented)
@@ -271,7 +312,9 @@ impl DownloadManager {
         let max_seg = MAX_SEGMENTS.min(settings.max_concurrent.max(1) * 2);
         let nseg = if want_segmented {
             let size = meta.size.unwrap_or(0);
-            (((size / SEGMENT_MIN_SIZE) as usize) + 1).min(max_seg).max(2)
+            (((size / SEGMENT_MIN_SIZE) as usize) + 1)
+                .min(max_seg)
+                .max(2)
         } else {
             0
         };
@@ -282,7 +325,11 @@ impl DownloadManager {
             let base = size / nseg as u64;
             let mut start = 0u64;
             for i in 0..nseg {
-                let end = if i == nseg - 1 { size - 1 } else { start + base - 1 };
+                let end = if i == nseg - 1 {
+                    size - 1
+                } else {
+                    start + base - 1
+                };
                 segments.push(SegmentInfo {
                     index: i,
                     start,
@@ -300,6 +347,7 @@ impl DownloadManager {
             id: Uuid::new_v4().to_string(),
             url: url.clone(),
             referrer,
+            cookies,
             filename: filename.clone(),
             dir: dir.display().to_string(),
             path: final_path.display().to_string(),
@@ -336,7 +384,10 @@ impl DownloadManager {
     pub fn pause(&self, id: &str) -> Result<(), String> {
         let entry = self.get(id)?;
         let status = entry.info.lock().unwrap().status.clone();
-        if matches!(status.as_str(), status::COMPLETED | status::FAILED | status::CANCELLED | status::PAUSED) {
+        if matches!(
+            status.as_str(),
+            status::COMPLETED | status::FAILED | status::CANCELLED | status::PAUSED
+        ) {
             return Err(format!("Cannot pause a {status} download"));
         }
         entry.action.store(1, Ordering::SeqCst);
@@ -374,15 +425,12 @@ impl DownloadManager {
             info.status = status::QUEUED.into();
             info.error = None;
             info.retries = 0;
-            info.received = 0;
             info.speed = 0.0;
             info.completed_at = None;
-            for seg in info.segments.iter_mut() {
-                seg.received = 0;
-            }
             info.updated_at = now_millis();
         }
-        self.cleanup_parts(&entry);
+        // Keep partial data on disk: the attempt re-measures the .part files
+        // and resumes from where it stopped, instead of restarting from zero.
         self.persist();
         self.emit_list();
         self.spawn_worker(entry);
@@ -390,7 +438,8 @@ impl DownloadManager {
     }
 
     pub fn pause_all(&self) -> usize {
-        let entries: Vec<Arc<DownloadEntry>> = self.entries.lock().unwrap().values().cloned().collect();
+        let entries: Vec<Arc<DownloadEntry>> =
+            self.entries.lock().unwrap().values().cloned().collect();
         let mut n = 0;
         for e in entries {
             let status = e.info.lock().unwrap().status.clone();
@@ -406,7 +455,8 @@ impl DownloadManager {
     }
 
     pub fn resume_all(self: &Arc<Self>) -> usize {
-        let entries: Vec<Arc<DownloadEntry>> = self.entries.lock().unwrap().values().cloned().collect();
+        let entries: Vec<Arc<DownloadEntry>> =
+            self.entries.lock().unwrap().values().cloned().collect();
         let mut n = 0;
         for e in entries {
             let status = e.info.lock().unwrap().status.clone();
@@ -437,7 +487,9 @@ impl DownloadManager {
             .map(|e| e.info.lock().unwrap().clone())
             .collect();
         order.sort_by(|a, b| {
-            a.priority.cmp(&b.priority).then(b.created_at.cmp(&a.created_at))
+            a.priority
+                .cmp(&b.priority)
+                .then(b.created_at.cmp(&a.created_at))
         });
         let pos = order
             .iter()
@@ -480,8 +532,14 @@ impl DownloadManager {
             status::QUEUED | status::DOWNLOADING | status::RETRYING
         );
         if active {
-            // The worker thread will clean up partial files when it notices.
+            // The worker thread will stop and mark the entry cancelled when it
+            // notices the action; remove() deletes the partial files itself
+            // (cancel alone keeps them so the entry can be retried/resumed).
             entry.action.store(2, Ordering::SeqCst);
+            // Give the worker a moment to stop writing before deleting parts,
+            // so a still-open file handle doesn't orphan a .part on Windows.
+            std::thread::sleep(Duration::from_millis(150));
+            self.cleanup_parts(&entry);
             // Cover the race where the worker already finalized the file.
             if self.settings.lock().unwrap().delete_with_remove {
                 let _ = fs::remove_file(&entry.info.lock().unwrap().path);
@@ -503,7 +561,20 @@ impl DownloadManager {
             *self.semaphore.lock().unwrap() =
                 Arc::new(tokio::sync::Semaphore::new(settings.max_concurrent.max(1)));
         }
+        if cur.user_agent != settings.user_agent {
+            *self.client.lock().unwrap() = build_client(&settings.user_agent);
+        }
         *cur = settings;
+    }
+
+    /// Change a running download's speed limit (bytes/second, 0 = unlimited).
+    /// The workers re-read the limit on every chunk, so it applies live.
+    pub fn set_speed_limit(&self, id: &str, limit: u64) -> Result<(), String> {
+        let entry = self.get(id)?;
+        entry.info.lock().unwrap().speed_limit = limit;
+        self.persist();
+        self.emit_progress(&entry);
+        Ok(())
     }
 
     fn get(&self, id: &str) -> Result<Arc<DownloadEntry>, String> {
@@ -582,7 +653,8 @@ impl DownloadManager {
                     info.error = Some("Cancelled".into());
                     info.updated_at = now_millis();
                     drop(info);
-                    self.cleanup_parts(&entry);
+                    // Partial data is kept on disk so "Retry" can resume from
+                    // where the download stopped instead of restarting.
                     self.flush();
                     self.emit_list();
                     break;
@@ -641,20 +713,19 @@ impl DownloadManager {
                 _ => unreachable!(),
             };
         }
-        let (url, segmented, supports_ranges, speed_limit, total_size, referrer) = {
+        let (url, segmented, supports_ranges, total_size, referrer) = {
             let info = entry.info.lock().unwrap();
             (
                 info.url.clone(),
                 info.segmented,
                 info.supports_ranges,
-                info.speed_limit,
                 info.total_size,
                 info.referrer.clone(),
             )
         };
         if segmented {
             match self
-                .attempt_segmented(entry.clone(), url.clone(), speed_limit, referrer.clone())
+                .attempt_segmented(entry.clone(), url.clone(), referrer.clone())
                 .await
             {
                 AttemptOutcome::RangeFallback => {
@@ -668,15 +739,13 @@ impl DownloadManager {
                     }
                     self.cleanup_parts(&entry);
                     self.emit_progress(&entry);
-                    self.attempt_single(
-                        entry, url, supports_ranges, speed_limit, total_size, referrer,
-                    )
-                    .await
+                    self.attempt_single(entry, url, supports_ranges, total_size, referrer)
+                        .await
                 }
                 other => other,
             }
         } else {
-            self.attempt_single(entry, url, supports_ranges, speed_limit, total_size, referrer)
+            self.attempt_single(entry, url, supports_ranges, total_size, referrer)
                 .await
         }
     }
@@ -686,13 +755,12 @@ impl DownloadManager {
         entry: Arc<DownloadEntry>,
         url: String,
         supports_ranges: bool,
-        speed_limit: u64,
         total_size: Option<u64>,
         referrer: Option<String>,
     ) -> AttemptOutcome {
-        let (path, _dir) = {
+        let (path, _dir, cookies) = {
             let info = entry.info.lock().unwrap();
-            (info.path.clone(), info.dir.clone())
+            (info.path.clone(), info.dir.clone(), info.cookies.clone())
         };
         let final_path = PathBuf::from(&path);
         let part = part_path(&final_path, 0);
@@ -706,9 +774,14 @@ impl DownloadManager {
             }
         }
 
-        let mut req = self.client.get(&url);
+        let mut req = self.client().get(&url);
         if let Some(r) = referrer.as_deref() {
             req = req.header(header::REFERER, r);
+        }
+        if let Some(c) = cookies.as_deref() {
+            if !c.is_empty() {
+                req = req.header(header::COOKIE, c);
+            }
         }
         if append {
             req = req.header(header::RANGE, format!("bytes={start}-"));
@@ -762,10 +835,10 @@ impl DownloadManager {
             Err(e) => return AttemptOutcome::Failed(format!("Cannot write file: {e}")),
         };
 
-        let eff_limit = self.effective_limit(speed_limit);
         let mut stream = resp.bytes_stream();
         let mut chunk_bytes = 0u64;
-        let start_instant = Instant::now();
+        let mut limit_instant = Instant::now();
+        let mut cur_limit = 0u64; // 0 = unlimited; throttle window restarts on change
         let mut last_emit = Instant::now();
         while let Some(chunk) = stream.next().await {
             if entry.action.load(Ordering::SeqCst) != 0 {
@@ -785,9 +858,18 @@ impl DownloadManager {
                 let mut info = entry.info.lock().unwrap();
                 info.received = received;
             }
-            if eff_limit > 0 {
-                let elapsed = start_instant.elapsed();
-                let target = Duration::from_secs_f64(chunk_bytes as f64 / eff_limit as f64);
+            // Re-read the limit each chunk so the per-download speed editor
+            // applies live (the lock is cheap). A changed limit restarts the
+            // window so old bytes don't "pay for" the new limit.
+            let eff_limit = self.effective_limit(entry.info.lock().unwrap().speed_limit);
+            if eff_limit != cur_limit {
+                cur_limit = eff_limit;
+                chunk_bytes = 0;
+                limit_instant = Instant::now();
+            }
+            if cur_limit > 0 {
+                let elapsed = limit_instant.elapsed();
+                let target = Duration::from_secs_f64(chunk_bytes as f64 / cur_limit as f64);
                 if target > elapsed {
                     tokio::time::sleep(target - elapsed).await;
                 }
@@ -820,7 +902,7 @@ impl DownloadManager {
                 ));
             }
         }
-        if let Err(e) = tokio::fs::rename(&part, &final_path).await {
+        if let Err(e) = rename_with_retry(&part, &final_path).await {
             return AttemptOutcome::Failed(format!("Finalize error: {e}"));
         }
         {
@@ -839,7 +921,6 @@ impl DownloadManager {
         self: &Arc<Self>,
         entry: Arc<DownloadEntry>,
         url: String,
-        speed_limit: u64,
         referrer: Option<String>,
     ) -> AttemptOutcome {
         let path = entry.info.lock().unwrap().path.clone();
@@ -872,11 +953,12 @@ impl DownloadManager {
         };
         *entry.speed_state.lock().unwrap() = SpeedState::at(base);
 
-        let eff_limit = self.effective_limit(speed_limit);
-        let per_seg = if eff_limit > 0 {
-            (eff_limit / segments.len().max(1) as u64).max(1)
-        } else {
-            0
+        let (global_limit, active) = {
+            let settings = self.settings.lock().unwrap();
+            (
+                settings.global_speed_limit,
+                self.active.load(Ordering::SeqCst).max(1),
+            )
         };
 
         // Live progress reporter.
@@ -901,10 +983,20 @@ impl DownloadManager {
             let entry = entry.clone();
             let url = url.clone();
             let referrer = referrer.clone();
-            let client = self.client.clone();
+            let client = self.client();
             let seg = seg.clone();
             handles.push(tauri::async_runtime::spawn(async move {
-                download_segment(client, url, entry, seg, per_seg, referrer).await
+                download_segment(
+                    client,
+                    url,
+                    entry,
+                    seg,
+                    global_limit,
+                    active,
+                    seg_count,
+                    referrer,
+                )
+                .await
             }));
         }
 
@@ -951,7 +1043,7 @@ impl DownloadManager {
                 return AttemptOutcome::Failed("Segmented download did not complete".into());
             }
         }
-        let mut out = match tokio::fs::File::create(&final_path).await {
+        let mut out = match open_final_with_retry(&final_path).await {
             Ok(f) => f,
             Err(e) => return AttemptOutcome::Failed(format!("Finalize error: {e}")),
         };
@@ -1141,18 +1233,26 @@ async fn download_segment(
     url: String,
     entry: Arc<DownloadEntry>,
     seg: SegmentInfo,
-    per_seg_limit: u64,
+    global_limit: u64,
+    active: usize,
+    seg_count: usize,
     referrer: Option<String>,
 ) -> Result<(), AttemptError> {
     let final_path = PathBuf::from(entry.info.lock().unwrap().path.clone());
     let part = part_path(&final_path, seg.index);
     let start_offset = seg.start + seg.received;
+    let cookies = entry.info.lock().unwrap().cookies.clone();
 
     let mut req = client
         .get(&url)
         .header(header::RANGE, format!("bytes={start_offset}-{}", seg.end));
     if let Some(r) = referrer.as_deref() {
         req = req.header(header::REFERER, r);
+    }
+    if let Some(c) = cookies.as_deref() {
+        if !c.is_empty() {
+            req = req.header(header::COOKIE, c);
+        }
     }
     let resp = match req.send().await {
         Ok(r) => r,
@@ -1193,7 +1293,8 @@ async fn download_segment(
 
     let mut stream = resp.bytes_stream();
     let mut chunk_bytes = 0u64;
-    let start_instant = Instant::now();
+    let mut limit_instant = Instant::now();
+    let mut cur_limit = 0u64; // current effective per-segment limit
     while let Some(chunk) = stream.next().await {
         if entry.action.load(Ordering::SeqCst) != 0 {
             return Err(AttemptError::Aborted);
@@ -1210,9 +1311,19 @@ async fn download_segment(
         if let Some(c) = entry.seg_recv.get(seg.index) {
             c.fetch_add(len, Ordering::SeqCst);
         }
-        if per_seg_limit > 0 {
-            let elapsed = start_instant.elapsed();
-            let target = Duration::from_secs_f64(chunk_bytes as f64 / per_seg_limit as f64);
+        // Live per-segment limit: read the entry's limit each chunk and split
+        // it across segments; restart the throttle window when it changes so
+        // the per-download speed editor applies immediately.
+        let entry_limit = entry.info.lock().unwrap().speed_limit;
+        let per_seg = per_seg_limit(entry_limit, global_limit, active, seg_count);
+        if per_seg != cur_limit {
+            cur_limit = per_seg;
+            chunk_bytes = 0;
+            limit_instant = Instant::now();
+        }
+        if cur_limit > 0 {
+            let elapsed = limit_instant.elapsed();
+            let target = Duration::from_secs_f64(chunk_bytes as f64 / cur_limit as f64);
             if target > elapsed {
                 tokio::time::sleep(target - elapsed).await;
             }
@@ -1227,10 +1338,20 @@ async fn download_segment(
 
 // ------------------------------------------------------------------ probing
 
-pub async fn probe_url(client: &Client, url: &str, referrer: Option<&str>) -> Result<UrlMeta, String> {
+pub async fn probe_url(
+    client: &Client,
+    url: &str,
+    referrer: Option<&str>,
+    cookies: Option<&str>,
+) -> Result<UrlMeta, String> {
     let mut head_req = client.head(url);
     if let Some(r) = referrer {
         head_req = head_req.header(header::REFERER, r);
+    }
+    if let Some(c) = cookies {
+        if !c.is_empty() {
+            head_req = head_req.header(header::COOKIE, c);
+        }
     }
     let head = head_req.send().await;
     let mut filename: Option<String> = None;
@@ -1268,6 +1389,11 @@ pub async fn probe_url(client: &Client, url: &str, referrer: Option<&str>) -> Re
         let mut sniff = client.get(url).header(header::RANGE, "bytes=0-0");
         if let Some(r) = referrer {
             sniff = sniff.header(header::REFERER, r);
+        }
+        if let Some(c) = cookies {
+            if !c.is_empty() {
+                sniff = sniff.header(header::COOKIE, c);
+            }
         }
         let resp = sniff.send().await.map_err(|e| e.to_string())?;
         let status = resp.status();
@@ -1359,8 +1485,12 @@ fn filename_from_url(url: &str) -> String {
 
 fn sanitize_filename(name: &str) -> String {
     let name = name.trim();
-    let name = name
-        .replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|', '\0', '\n', '\r'], "_");
+    let name = name.replace(
+        [
+            '/', '\\', ':', '*', '?', '"', '<', '>', '|', '\0', '\n', '\r',
+        ],
+        "_",
+    );
     let name = name.trim().trim_matches('.');
     if name.is_empty() {
         "download".to_string()
@@ -1369,12 +1499,113 @@ fn sanitize_filename(name: &str) -> String {
     }
 }
 
+/// Free bytes on the volume containing `dir`, if it can be determined.
+#[cfg(windows)]
+fn free_space(dir: &Path) -> Option<u64> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
+    let wide: Vec<u16> = std::ffi::OsStr::new(dir)
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    let mut avail: u64 = 0;
+    let ok = unsafe {
+        GetDiskFreeSpaceExW(
+            wide.as_ptr(),
+            &mut avail,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        )
+    };
+    if ok != 0 {
+        Some(avail)
+    } else {
+        None
+    }
+}
+
+#[cfg(not(windows))]
+fn free_space(_dir: &Path) -> Option<u64> {
+    None
+}
+
+/// Compact byte count for error messages.
+fn fmt_bytes(n: u64) -> String {
+    const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
+    let mut v = n as f64;
+    let mut u = 0;
+    while v >= 1024.0 && u < UNITS.len() - 1 {
+        v /= 1024.0;
+        u += 1;
+    }
+    if u == 0 {
+        format!("{n} B")
+    } else {
+        format!("{v:.1} {}", UNITS[u])
+    }
+}
+
+/// Rename a finished .part file to its final name, retrying briefly in case an
+/// antivirus scanner or Explorer has the file locked at that instant.
+async fn rename_with_retry(from: &Path, to: &Path) -> std::io::Result<()> {
+    let mut last = None;
+    for i in 0..6u32 {
+        match tokio::fs::rename(from, to).await {
+            Ok(()) => return Ok(()),
+            Err(e) => {
+                last = Some(e);
+                tokio::time::sleep(Duration::from_millis(150 * (i as u64 + 1))).await;
+            }
+        }
+    }
+    Err(last.unwrap_or_else(|| std::io::Error::new(std::io::ErrorKind::Other, "rename failed")))
+}
+
+/// Open (create/truncate) the final file with a few retries for the same
+/// file-lock reason as rename_with_retry.
+async fn open_final_with_retry(path: &Path) -> std::io::Result<tokio::fs::File> {
+    let mut last = None;
+    for i in 0..6u32 {
+        match tokio::fs::File::create(path).await {
+            Ok(f) => return Ok(f),
+            Err(e) => {
+                last = Some(e);
+                tokio::time::sleep(Duration::from_millis(150 * (i as u64 + 1))).await;
+            }
+        }
+    }
+    Err(last.unwrap_or_else(|| std::io::Error::new(std::io::ErrorKind::Other, "open failed")))
+}
+
+/// Effective per-segment speed limit for a running download: the entry's limit
+/// (or the global cap divided across active downloads) split across segments.
+fn per_seg_limit(entry_limit: u64, global_limit: u64, active: usize, seg_count: usize) -> u64 {
+    let active = active.max(1) as u64;
+    let eff = if entry_limit > 0 && global_limit > 0 {
+        entry_limit.min(global_limit / active)
+    } else if entry_limit > 0 {
+        entry_limit
+    } else if global_limit > 0 {
+        global_limit / active
+    } else {
+        0
+    };
+    if eff > 0 {
+        (eff / seg_count.max(1) as u64).max(1)
+    } else {
+        0
+    }
+}
+
 fn part_path(final_path: &Path, index: usize) -> PathBuf {
     let name = final_path
         .file_name()
         .and_then(|s| s.to_str())
         .unwrap_or("download");
-    let parent = final_path.parent().map(|p| p.to_path_buf()).unwrap_or_default();
+    let parent = final_path
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_default();
     if index == 0 {
         parent.join(format!("{name}{PART_EXT}"))
     } else {
@@ -1423,13 +1654,20 @@ fn received_from_parts(info: &DownloadInfo) -> u64 {
     } else {
         info.segments
             .iter()
-            .map(|s| file_len(&part_path(&fp, s.index)).unwrap_or(0).min(s.expected_len()))
+            .map(|s| {
+                file_len(&part_path(&fp, s.index))
+                    .unwrap_or(0)
+                    .min(s.expected_len())
+            })
             .sum()
     }
 }
 
 fn is_retryable(msg: &str) -> bool {
-    if let Some(code) = msg.strip_prefix("HTTP ").and_then(|s| s.trim().parse::<u16>().ok()) {
+    if let Some(code) = msg
+        .strip_prefix("HTTP ")
+        .and_then(|s| s.trim().parse::<u16>().ok())
+    {
         return code >= 500 || code == 408 || code == 429;
     }
     let lower = msg.to_lowercase();
@@ -1512,10 +1750,14 @@ mod tests {
         let addr = serve_no_length_head(12_345);
         let client = Client::new();
         let meta = tauri::async_runtime::block_on(async move {
-            probe_url(&client, &format!("http://{addr}/video.mp4"), None).await
+            probe_url(&client, &format!("http://{addr}/video.mp4"), None, None).await
         })
         .expect("probe should succeed");
-        assert_eq!(meta.size, Some(12_345), "size should be learned via ranged GET");
+        assert_eq!(
+            meta.size,
+            Some(12_345),
+            "size should be learned via ranged GET"
+        );
         assert!(meta.supports_ranges);
         assert_eq!(meta.filename, "video.mp4");
     }
@@ -1538,7 +1780,7 @@ mod tests {
         });
         let client = Client::new();
         let meta = tauri::async_runtime::block_on(async move {
-            probe_url(&client, &format!("http://{addr}/a.bin"), None).await
+            probe_url(&client, &format!("http://{addr}/a.bin"), None, None).await
         })
         .expect("probe should succeed");
         assert_eq!(meta.size, Some(999));

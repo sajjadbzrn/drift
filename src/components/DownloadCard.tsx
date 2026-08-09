@@ -168,6 +168,13 @@ export function DownloadCard({
   queuePos,
   selected,
   onSelect,
+  onDoubleClick,
+  dragging,
+  dropTarget,
+  onDragStart,
+  onDragEnd,
+  onDragOver,
+  onDrop,
   onContext,
   onPause,
   onResume,
@@ -182,7 +189,14 @@ export function DownloadCard({
   index?: number;
   queuePos?: number;
   selected?: boolean;
-  onSelect?: () => void;
+  onSelect?: (multi: boolean) => void;
+  onDoubleClick?: () => void;
+  dragging?: boolean;
+  dropTarget?: boolean;
+  onDragStart?: () => void;
+  onDragEnd?: () => void;
+  onDragOver?: (e: React.DragEvent<HTMLDivElement>) => void;
+  onDrop?: (e: React.DragEvent<HTMLDivElement>) => void;
   onContext: (d: DownloadInfo, e: React.MouseEvent) => void;
   onPause: (id: string) => void;
   onResume: (id: string) => void;
@@ -206,7 +220,8 @@ export function DownloadCard({
 
   return (
     <div
-      className={`card${failed ? " card-failed" : ""}${selected ? " card-selected" : ""}`}
+      className={`card${failed ? " card-failed" : ""}${selected ? " card-selected" : ""}${dragging ? " card-dragging" : ""}${dropTarget ? " card-drop-target" : ""}`}
+      draggable={typeof onDragStart === "function"}
       style={
         {
           animationDelay: `${Math.min(index ?? 0, 10) * 32}ms`,
@@ -217,9 +232,14 @@ export function DownloadCard({
       onClick={(e) => {
         if (onSelect) {
           e.preventDefault();
-          onSelect();
+          onSelect(e.ctrlKey || e.metaKey || e.shiftKey);
         }
       }}
+      onDoubleClick={onDoubleClick}
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
     >
       <div
         className="card-icon"

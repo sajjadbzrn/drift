@@ -34,9 +34,14 @@ interface DeepLink {
   url: string;
   filename: string | null;
   referrer: string | null;
+  cookies: string | null;
 }
 
-/** Parse drift://add?url=<encoded>&filename=<encoded>&referrer=<encoded>. */
+/**
+ * Parse drift://add?url=<encoded>&filename=<encoded>&referrer=<encoded>&cookies=<encoded>.
+ * The cookies param is forwarded by the browser extension for login-protected
+ * downloads and sent with every request for that download.
+ */
 function parseDeepLink(raw: string): DeepLink | null {
   try {
     const u = new URL(raw);
@@ -45,10 +50,12 @@ function parseDeepLink(raw: string): DeepLink | null {
     if (!target || !looksLikeUrl(target)) return null;
     const filename = u.searchParams.get("filename");
     const referrer = u.searchParams.get("referrer");
+    const cookies = u.searchParams.get("cookies");
     return {
       url: target,
       filename: filename && filename.trim() ? filename : null,
       referrer: referrer && referrer.trim() ? referrer : null,
+      cookies: cookies && cookies.trim() ? cookies : null,
     };
   } catch {
     return null;
@@ -72,6 +79,7 @@ export function NewDownloadBar({
     path: string,
     speedLimit: number | null,
     referrer?: string | null,
+    cookies?: string | null,
   ) => void;
   notify: (msg: string, kind: "success" | "error" | "info") => void;
 }) {
@@ -119,9 +127,17 @@ export function NewDownloadBar({
 
   const startFlow = async (
     targetUrl: string,
-    opts?: { filename?: string | null; referrer?: string | null },
+    opts?: {
+      filename?: string | null;
+      referrer?: string | null;
+      cookies?: string | null;
+    },
   ) => {
-    const clean = targetUrl.trim();
+    // Bare www. links (no scheme) get https:// added automatically.
+    let clean = targetUrl.trim();
+    if (!/^https?:\/\//i.test(clean) && /^www\./i.test(clean)) {
+      clean = `https://${clean}`;
+    }
     if (!looksLikeUrl(clean) || !clean.startsWith("http")) {
       notify(t("invalidUrl"), "error");
       return;
@@ -132,9 +148,9 @@ export function NewDownloadBar({
     }
     setProbing(true);
     try {
-      // Send the referrer (from the browser extension handoff) so the probe
-      // works for hotlink-protected files.
-      const meta = await api.probeUrl(clean, opts?.referrer ?? undefined);
+      // Send the referrer + cookies (from the browser extension handoff) so
+      // the probe works for hotlink-protected and login-protected files.
+      const meta = await api.probeUrl(clean, opts?.referrer ?? undefined, opts?.cookies ?? undefined);
       let chosen: string;
       // Prefer the hint from the browser when the probe only found a generic name.
       const probeName = meta.filename || "download";
@@ -151,7 +167,7 @@ export function NewDownloadBar({
         if (typeof r !== "string") return; // user cancelled
         chosen = r;
       }
-      onStart(clean, chosen, limitBytes(), opts?.referrer ?? null);
+      onStart(clean, chosen, limitBytes(), opts?.referrer ?? null, opts?.cookies ?? null);
       setUrl("");
       setLimit("");
       onHitHandled();
@@ -201,13 +217,23 @@ export function NewDownloadBar({
     // page can re-trigger a download after the browser copy is cancelled.
     // Without this, a single handoff could open several save dialogs at once.
     const recentHandoffs = new Map<string, number>();
+    // URLs still being handed off (probing / waiting on the dialog). Blocks a
+    // second delivery of the same URL while the first is still in flight — the
+    // timestamp dedupe below only covers handoffs that already finished.
+    const inFlight = new Set<string>();
     const handle = (raw: string) => {
       const u = parseDeepLink(raw);
       if (!u) return;
       const now = Date.now();
       const last = recentHandoffs.get(u.url) ?? 0;
-      if (now - last < 8000) return;
+      if (now - last < 8000 || inFlight.has(u.url)) return;
       recentHandoffs.set(u.url, now);
+      if (recentHandoffs.size > 200) {
+        for (const [k, v] of recentHandoffs) {
+          if (now - v > 60000) recentHandoffs.delete(k);
+        }
+      }
+      inFlight.add(u.url);
       // Silent handoff: with auto-save on there is no dialog to answer, so
       // don't yank focus away from the user's browser.
       if (!autoSaveRef.current) {
@@ -221,6 +247,9 @@ export function NewDownloadBar({
       void startFlowRef.current(u.url, {
         filename: u.filename,
         referrer: u.referrer,
+        cookies: u.cookies,
+      }).finally(() => {
+        inFlight.delete(u.url);
       });
     };
     (async () => {

@@ -21,5 +21,11 @@
   "sentToDrift": { "message": "به دریفت ارسال شد." },
   "failed": { "message": "مشکلی پیش آمد." },
   "checking": { "message": "در حال بررسی دریفت…" },
-  "refresh": { "message": "بررسی دوباره" }
+  "refresh": { "message": "بررسی دوباره" },
+  "sendCookies": { "message": "ارسال کوکی‌ها همراه دانلودها" },
+  "sendCookiesHint": {
+    "message": "برای دانلود از سایت‌های نیازمند ورود مفید است. فقط به سایت خودِ فایل ارسال می‌شود."
+  },
+  "openDrift": { "message": "باز کردن دریفت" },
+  "openedDrift": { "message": "در حال باز کردن دریفت…" }
 }

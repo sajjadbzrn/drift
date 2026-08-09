@@ -53,10 +53,14 @@ fn encode_param(s: &str) -> String {
     utf8_percent_encode(s, NON_ALPHANUMERIC).to_string()
 }
 
-/// Fire a `drift://add?url=…&filename=…&referrer=…` deep link. The OS routes
-/// it to drift: a fresh instance (cold start, the frontend picks the URL up
-/// via `getCurrent()`) or the running one (single-instance forwards it).
-fn fire_deep_link(url: &str, filename: Option<&str>, referrer: Option<&str>) -> Result<(), String> {
+/// Build the `drift://add?url=…&filename=…&referrer=…&cookies=…` URI. Pure —
+/// kept separate from the OS call so the framing/tests can exercise it.
+fn build_add_uri(
+    url: &str,
+    filename: Option<&str>,
+    referrer: Option<&str>,
+    cookies: Option<&str>,
+) -> String {
     let mut uri = format!("drift://add?url={}", encode_param(url));
     if let Some(f) = filename {
         if !f.is_empty() {
@@ -68,14 +72,25 @@ fn fire_deep_link(url: &str, filename: Option<&str>, referrer: Option<&str>) -> 
             uri.push_str(&format!("&referrer={}", encode_param(r)));
         }
     }
+    if let Some(c) = cookies {
+        if !c.is_empty() {
+            uri.push_str(&format!("&cookies={}", encode_param(c)));
+        }
+    }
+    uri
+}
 
+/// Ask Windows to open a `drift://` URI. The OS routes it to drift: a fresh
+/// instance (cold start, the frontend picks the URL up via `getCurrent()`) or
+/// the running one (single-instance forwards it).
+fn fire_raw(uri: &str) -> Result<(), String> {
     #[cfg(windows)]
     {
         use std::os::windows::ffi::OsStrExt;
         use windows_sys::Win32::UI::Shell::ShellExecuteW;
         use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
 
-        let wide: Vec<u16> = std::ffi::OsStr::new(&uri)
+        let wide: Vec<u16> = std::ffi::OsStr::new(uri)
             .encode_wide()
             .chain(std::iter::once(0))
             .collect();
@@ -102,15 +117,30 @@ fn fire_deep_link(url: &str, filename: Option<&str>, referrer: Option<&str>) -> 
 
     #[cfg(not(windows))]
     {
-        let _ = (uri,);
+        let _ = uri;
         Err("drift deep links are only supported on Windows".into())
     }
+}
+
+/// Fire a `drift://add` deep link carrying url, optional filename/referrer and
+/// optional cookies (forwarded by the extension for login-protected pages).
+fn fire_deep_link(
+    url: &str,
+    filename: Option<&str>,
+    referrer: Option<&str>,
+    cookies: Option<&str>,
+) -> Result<(), String> {
+    fire_raw(&build_add_uri(url, filename, referrer, cookies))
 }
 
 fn handle(msg: Value) -> Value {
     let ty = msg.get("type").and_then(|v| v.as_str()).unwrap_or("");
     match ty {
         "ping" => json!({ "type": "pong", "version": VERSION }),
+        "open" => match fire_raw("drift://open") {
+            Ok(()) => json!({ "ok": true }),
+            Err(e) => json!({ "ok": false, "error": e }),
+        },
         "add" => {
             let url = msg.get("url").and_then(|v| v.as_str()).unwrap_or("");
             if url.is_empty() {
@@ -118,25 +148,39 @@ fn handle(msg: Value) -> Value {
             }
             let filename = msg.get("filename").and_then(|v| v.as_str());
             let referrer = msg.get("referrer").and_then(|v| v.as_str());
-            match fire_deep_link(url, filename, referrer) {
+            let cookies = msg.get("cookies").and_then(|v| v.as_str());
+            match fire_deep_link(url, filename, referrer, cookies) {
                 Ok(()) => json!({ "ok": true }),
                 Err(e) => json!({ "ok": false, "error": e }),
             }
         }
         "addBatch" => {
-            let urls: Vec<&str> = msg
+            let items: Vec<Value> = msg
                 .get("urls")
                 .and_then(|v| v.as_array())
-                .map(|a| a.iter().filter_map(|x| x.as_str()).collect())
+                .cloned()
                 .unwrap_or_default();
-            // Pace the deep links: each one can spawn a short-lived drift.exe
-            // when the app is running (single-instance forwards the URL), and
-            // a burst would spawn several. 120 ms keeps it calm.
-            for (i, u) in urls.into_iter().enumerate() {
+            // Each item is a plain URL string, or an object { url, cookies } —
+            // the batch context menus send cookies so login-protected pages
+            // download correctly. Pace the deep links: each one can spawn a
+            // short-lived drift.exe when the app is running (single-instance
+            // forwards the URL), and a burst would spawn several. 120 ms
+            // keeps it calm.
+            for (i, item) in items.iter().enumerate() {
+                let (url, cookies) = match item {
+                    Value::String(s) => (s.as_str(), None),
+                    _ => (
+                        item.get("url").and_then(|v| v.as_str()).unwrap_or(""),
+                        item.get("cookies").and_then(|v| v.as_str()),
+                    ),
+                };
+                if url.is_empty() {
+                    continue;
+                }
                 if i > 0 {
                     std::thread::sleep(std::time::Duration::from_millis(120));
                 }
-                if let Err(e) = fire_deep_link(u, None, None) {
+                if let Err(e) = fire_deep_link(url, None, None, cookies) {
                     return json!({ "ok": false, "error": e });
                 }
             }
@@ -160,4 +204,59 @@ fn main() {
         write_frame(&resp);
     }
     eprintln!("drift-host {VERSION} exiting (stdin closed)");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ping_responds_pong() {
+        let resp = handle(json!({ "type": "ping" }));
+        assert_eq!(resp["type"], "pong");
+        assert_eq!(resp["version"], VERSION);
+    }
+
+    #[test]
+    fn add_without_url_is_error() {
+        let resp = handle(json!({ "type": "add" }));
+        assert_eq!(resp["ok"], false);
+        assert_eq!(resp["error"], "missing url");
+    }
+
+    #[test]
+    fn unknown_message_is_error() {
+        let resp = handle(json!({ "type": "nope" }));
+        assert_eq!(resp["ok"], false);
+        assert_eq!(resp["error"], "unknown message type");
+    }
+
+    #[test]
+    fn add_batch_skips_empty_items() {
+        // Only items that would ShellExecute a real URI are side-effecting;
+        // empty/blank items never fire, so this is safe to run anywhere.
+        let resp = handle(json!({ "type": "addBatch", "urls": ["", null, 5, {}] }));
+        assert_eq!(resp["ok"], true);
+    }
+
+    #[test]
+    fn uri_encodes_params_and_cookies() {
+        let uri = build_add_uri(
+            "https://a.com/f.bin",
+            Some("f.bin"),
+            Some("https://ref/x"),
+            Some("sid=1; tok=a b"),
+        );
+        // NON_ALPHANUMERIC encodes '.' too (functional — decodes back cleanly).
+        assert!(uri.starts_with("drift://add?url=https%3A%2F%2Fa%2Ecom%2Ff%2Ebin"));
+        assert!(uri.contains("&filename=f%2Ebin"));
+        assert!(uri.contains("&referrer=https%3A%2F%2Fref%2Fx"));
+        assert!(uri.contains("&cookies=sid%3D1%3B%20tok%3Da%20b"));
+    }
+
+    #[test]
+    fn uri_omits_empty_optional_params() {
+        let uri = build_add_uri("https://a.com/f.bin", None, Some(""), Some(""));
+        assert_eq!(uri, "drift://add?url=https%3A%2F%2Fa%2Ecom%2Ff%2Ebin");
+    }
 }

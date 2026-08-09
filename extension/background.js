@@ -14,8 +14,12 @@ const NS = typeof browser !== "undefined" ? browser : chrome;
 const HOST_NAME = "com.sajjadbzn.drift.host";
 const INSTALL_URL = "https://github.com/sajjadbzrn/drift/releases/latest";
 const HOST_TTL_MS = 15000;
+// Every host check spawns the drift-host process, so the background heartbeat
+// refreshes it at most this often (downloads and popup opens still check on
+// demand — see the alarm listener at the bottom).
+const HOST_REFRESH_MS = 5 * 60 * 1000;
 const NUDGE_INTERVAL_MS = 24 * 60 * 60 * 1000;
-const DEFAULTS = { autoCapture: true, nudgeShownAt: 0 };
+const DEFAULTS = { autoCapture: true, nudgeShownAt: 0, sendCookies: true };
 
 let settings = { ...DEFAULTS };
 let hostState = "unknown"; // "unknown" | "connected" | "missing" | "forbidden"
@@ -52,6 +56,69 @@ function call(fn, ...args) {
 
 function looksLikeUrl(s) {
   return /^(https?:\/\/)[^\s]+$/i.test((s || "").trim());
+}
+
+/** Build a Cookie header for `url` from the browser's cookie jar, or null.
+ *  Only used when the user enables the "send cookies" toggle; cookies are
+ *  scoped to the download's own site, never sent anywhere else. */
+async function getCookiesHeader(url) {
+  if (!NS.cookies || !NS.cookies.getAll) return null;
+  try {
+    const cs = await call(NS.cookies.getAll, { url });
+    if (!cs || cs.length === 0) return null;
+    const header = cs.map((c) => `${c.name}=${c.value}`).join("; ");
+    return header || null;
+  } catch (e) {
+    return null;
+  }
+}
+
+const BATCH_MEDIA_RE = /\.(mp4|mkv|webm|mov|avi|m4v|flv|wmv|mp3|wav|flac|ogg|m4a|aac|opus|jpg|jpeg|png|gif|webp|svg|ico|bmp|zip|rar|7z|tar|gz|pdf)$/i;
+
+/** Collect http(s) URLs from a page via chrome.scripting. The context-menu
+ *  click grants activeTab access to that tab, so no broad host permission is
+ *  needed at runtime for the page itself. */
+async function collectPageUrls(tab, mediaOnly) {
+  if (!NS.scripting || !NS.scripting.executeScript) return [];
+  const grab = () => {
+    const hrefs = Array.from(document.querySelectorAll("a[href]"))
+      .map((a) => a.href)
+      .filter((h) => /^https?:\/\//i.test(h));
+    const srcs = Array.from(
+      document.querySelectorAll("video[src], audio[src], source[src], img[src]"),
+    )
+      .map((el) => el.currentSrc || el.src)
+      .filter((h) => /^https?:\/\//i.test(h));
+    return { hrefs, srcs };
+  };
+  try {
+    const results = await NS.scripting.executeScript({ target: { tabId: tab.id }, func: grab });
+    const first = results && results[0] && results[0].result;
+    if (!first) return [];
+    const raw = mediaOnly
+      ? first.hrefs
+          .filter((h) => {
+            try {
+              return BATCH_MEDIA_RE.test(new URL(h).pathname);
+            } catch (e) {
+              return false;
+            }
+          })
+          .concat(first.srcs)
+      : first.hrefs;
+    const seen = new Set();
+    const out = [];
+    for (const u of raw) {
+      if (u && !seen.has(u)) {
+        seen.add(u);
+        out.push(u);
+      }
+      if (out.length >= 60) break;
+    }
+    return out;
+  } catch (e) {
+    return [];
+  }
 }
 
 async function loadSettings() {
@@ -172,6 +239,21 @@ function sendToDrift(msg, retries = 0) {
 
 // ---------------------------------------------------------- auto-capture
 
+/** Serial handoff queue. A page (or Chrome re-creating downloads from the
+ *  previous session) can create several downloads at once; firing all their
+ *  drift:// deep links simultaneously can race drift's cold start and spawn
+ *  several save dialogs. Pacing handoffs one at a time keeps them calm. */
+let handoffChain = Promise.resolve();
+const HANDOFF_PACE_MS = 350;
+function queueHandoff(fn) {
+  const delay = () => new Promise((r) => setTimeout(r, HANDOFF_PACE_MS));
+  // The pace applies on success and failure alike, so a failed handoff can't
+  // let the next one fire immediately and re-race drift's cold start.
+  const run = handoffChain.then(fn, fn).then(delay, delay);
+  handoffChain = run.catch(() => {});
+  return run;
+}
+
 NS.downloads.onCreated.addListener(async (item) => {
   try {
     if (!settings.autoCapture) return;
@@ -181,6 +263,15 @@ NS.downloads.onCreated.addListener(async (item) => {
     }
     const url = item && item.url;
     if (!url || !/^https?:\/\//i.test(url)) return;
+
+    // Downloads Chrome re-created from a previous session (still in progress
+    // when the browser last closed) are not fresh user actions: their links
+    // are usually long-expired, and capturing them would make drift pop up a
+    // burst of save dialogs and "failed to start" toasts on every browser
+    // start. A fresh download always starts at zero bytes received.
+    if (item.state === "interrupted" || item.paused || (item.bytesReceived ?? 0) > 0) {
+      return;
+    }
 
     // Dedupe repeat captures of the same URL (see recentCaptures above).
     const now = Date.now();
@@ -192,35 +283,42 @@ NS.downloads.onCreated.addListener(async (item) => {
       }
     }
 
-    const state = await checkHost();
-    if (state !== "connected") {
-      // drift not installed (or not yet allowed) — leave the download alone.
-      // Only the "missing" case gets the install nudge; "forbidden" means
-      // the user must allow this extension in drift's settings instead.
-      if (state === "missing") await maybeNudge();
-      return;
-    }
-
-    // Chrome reports the absolute local path here; drift only wants the name.
-    const filename = item.filename ? item.filename.split(/[\\/]/).pop() || null : null;
-
-    // Hand the download to drift FIRST, then cancel the browser copy, so a
-    // failed handoff never loses the user's download.
-    const res = await sendToDrift({
-      type: "add",
-      url,
-      filename,
-      referrer: item.referrer || null,
-    });
-    if (res === "ok") {
-      try {
-        await call(NS.downloads.cancel, item.id);
-      } catch (e) {
-        /* download already finished — the copy in drift is what matters */
+    // Serialize the actual handoff so a burst of downloads can't race drift's
+    // cold start (which would open several save dialogs at once).
+    await queueHandoff(async () => {
+      const state = await checkHost();
+      if (state !== "connected") {
+        // drift not installed (or not yet allowed) — leave the download alone.
+        // Only the "missing" case gets the install nudge; "forbidden" means
+        // the user must allow this extension in drift's settings instead.
+        if (state === "missing") await maybeNudge();
+        return;
       }
-    } else {
-      await maybeNudge();
-    }
+
+      // Chrome reports the absolute local path here; drift only wants the name.
+      const filename = item.filename ? item.filename.split(/[\\/]/).pop() || null : null;
+      // Forward the site's cookies so login-protected downloads work in drift.
+      const cookies = settings.sendCookies ? await getCookiesHeader(url) : null;
+
+      // Hand the download to drift FIRST, then cancel the browser copy, so a
+      // failed handoff never loses the user's download.
+      const res = await sendToDrift({
+        type: "add",
+        url,
+        filename,
+        referrer: item.referrer || null,
+        cookies,
+      });
+      if (res === "ok") {
+        try {
+          await call(NS.downloads.cancel, item.id);
+        } catch (e) {
+          /* download already finished — the copy in drift is what matters */
+        }
+      } else {
+        await maybeNudge();
+      }
+    });
   } catch (e) {
     // never throw out of a listener
   } finally {
@@ -251,9 +349,50 @@ NS.runtime.onInstalled.addListener(() => {
     title: "Download selection with drift",
     contexts: ["selection"],
   });
+  NS.contextMenus.create({
+    id: "drift-download-links",
+    title: "Download all links with drift",
+    contexts: ["page"],
+  });
+  NS.contextMenus.create({
+    id: "drift-download-media",
+    title: "Download all media with drift",
+    contexts: ["page"],
+  });
 });
 
 NS.contextMenus.onClicked.addListener(async (info, tab) => {
+  // Batch menus: collect every link / media URL on the page and hand them all
+  // to drift at once (the host paces the deep links).
+  if (info.menuItemId === "drift-download-links" || info.menuItemId === "drift-download-media") {
+    const mediaOnly = info.menuItemId === "drift-download-media";
+    const urls = tab ? await collectPageUrls(tab, mediaOnly) : [];
+    if (urls.length === 0) return;
+    const state = await checkHost();
+    if (state !== "connected") {
+      if (state === "missing") await maybeNudge();
+      return;
+    }
+    // Cookies are fetched per unique origin, once each.
+    const cookieByOrigin = new Map();
+    const items = [];
+    for (const u of urls) {
+      let origin = "";
+      try {
+        origin = new URL(u).origin;
+      } catch (e) {
+        continue;
+      }
+      if (!cookieByOrigin.has(origin)) {
+        cookieByOrigin.set(origin, settings.sendCookies ? await getCookiesHeader(u) : null);
+      }
+      items.push({ url: u, cookies: cookieByOrigin.get(origin) });
+    }
+    const res = await sendToDrift({ type: "addBatch", urls: items });
+    if (res !== "ok") await maybeNudge();
+    return;
+  }
+
   let url = info.linkUrl || info.pageUrl || (tab && tab.url) || "";
   if (info.selectionText && looksLikeUrl(info.selectionText)) {
     url = info.selectionText.trim();
@@ -263,7 +402,8 @@ NS.contextMenus.onClicked.addListener(async (info, tab) => {
 
   const state = await checkHost();
   if (state === "connected") {
-    const res = await sendToDrift({ type: "add", url, filename: null, referrer });
+    const cookies = settings.sendCookies ? await getCookiesHeader(url) : null;
+    const res = await sendToDrift({ type: "add", url, filename: null, referrer, cookies });
     if (res !== "ok") await maybeNudge();
   } else {
     // Fallback: run the download in the browser + the subtle install nudge.
@@ -291,6 +431,7 @@ NS.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           ok: true,
           hostState: state,
           autoCapture: settings.autoCapture,
+          sendCookies: settings.sendCookies,
         });
         break;
       }
@@ -303,6 +444,22 @@ NS.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         }
         sendResponse({ ok: true });
         break;
+      case "setSendCookies":
+        settings.sendCookies = !!msg.value;
+        try {
+          await NS.storage.local.set({ sendCookies: settings.sendCookies });
+        } catch (e) {
+          /* non-persistent is acceptable */
+        }
+        sendResponse({ ok: true });
+        break;
+      case "openDrift": {
+        // Ask the host to fire a drift://open deep link — the OS launches
+        // (or focuses) the drift app.
+        const res = await sendToDrift({ type: "open" });
+        sendResponse({ ok: res === "ok", error: res === "ok" ? null : res });
+        break;
+      }
       case "sendPage": {
         if (!msg.url || !/^https?:\/\//i.test(msg.url)) {
           sendResponse({ ok: false, error: "invalid url" });
@@ -310,11 +467,13 @@ NS.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         }
         const state = await checkHost();
         if (state === "connected") {
+          const cookies = settings.sendCookies ? await getCookiesHeader(msg.url) : null;
           const res = await sendToDrift({
             type: "add",
             url: msg.url,
             filename: null,
             referrer: msg.referrer || null,
+            cookies,
           });
           sendResponse({ ok: res === "ok", hostState: state, error: res === "ok" ? null : res });
         } else if (state === "forbidden") {
@@ -345,6 +504,29 @@ NS.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
 void loadSettings();
 
+// Keyboard command (Ctrl+Shift+D): send the current page to drift.
+try {
+  NS.commands.onCommand.addListener(async (command) => {
+    if (command !== "send-page-to-drift") return;
+    try {
+      const tabs = await NS.tabs.query({ active: true, currentWindow: true });
+      const url = tabs && tabs[0] && tabs[0].url;
+      if (!url || !/^https?:\/\//i.test(url)) return;
+      const state = await checkHost();
+      if (state === "connected") {
+        const cookies = settings.sendCookies ? await getCookiesHeader(url) : null;
+        await sendToDrift({ type: "add", url, filename: null, referrer: url, cookies });
+      } else if (state === "missing") {
+        await maybeNudge();
+      }
+    } catch (e) {
+      /* never throw out of a listener */
+    }
+  });
+} catch (e) {
+  // commands API may be unavailable on some browsers — the popup still works
+}
+
 // Periodic cleanup of the recentCaptures dedupe map so it never grows
 // unbounded between the inline prune inside onCreated (which only fires at
 // size > 100). Runs every 30 seconds.
@@ -362,9 +544,11 @@ try {
   NS.alarms.onAlarm.addListener((alarm) => {
     if (alarm.name === "drift-heartbeat") {
       void loadSettings();
-      // Don't force a host check — just refresh the cached state and let
-      // the next actual download request open a port if needed.
-      void checkHost(false);
+      // Only re-check the host every few minutes — each check spawns the
+      // drift-host process, and doing that on every 20s heartbeat wastes a
+      // process while Chrome runs. Downloads and popup opens still refresh
+      // host state on demand, so a stale badge is harmless and short-lived.
+      if (Date.now() - lastHostCheck > HOST_REFRESH_MS) void checkHost(false);
     }
   });
 } catch (e) {

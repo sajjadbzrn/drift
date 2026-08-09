@@ -7,14 +7,15 @@ import type {
 } from "../types";
 
 export const api = {
-  probeUrl: (url: string, referrer?: string) =>
-    invoke<UrlMeta>("probe_url", { url, referrer }),
+  probeUrl: (url: string, referrer?: string, cookies?: string) =>
+    invoke<UrlMeta>("probe_url", { url, referrer, cookies: cookies ?? null }),
   startDownload: (
     url: string,
     path: string,
     speedLimit: number | null,
     segmented: boolean | null,
     referrer?: string | null,
+    cookies?: string | null,
   ) =>
     invoke<DownloadInfo>("start_download", {
       url,
@@ -22,7 +23,10 @@ export const api = {
       speedLimit,
       segmented,
       referrer: referrer ?? null,
+      cookies: cookies ?? null,
     }),
+  setSpeedLimit: (id: string, limit: number) =>
+    invoke<void>("set_speed_limit", { id, limit }),
   pause: (id: string) => invoke<void>("pause_download", { id }),
   resume: (id: string) => invoke<void>("resume_download", { id }),
   retry: (id: string) => invoke<void>("retry_download", { id }),

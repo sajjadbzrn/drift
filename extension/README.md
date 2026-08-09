@@ -20,6 +20,18 @@ request is forwarded through the host, which fires the existing
 `drift://add?url=…` deep link; drift (or the already-running instance) picks
 it up exactly like the browser bookmarklet flow.
 
+## Notes
+
+- **Browser restarts don't re-capture old downloads.** When Chrome reopens it
+  re-creates downloads that were still in progress when it last closed, and
+  fires `downloads.onCreated` for each. Those are not fresh user actions (the
+  links are usually expired), so the extension skips any item that is already
+  partially downloaded, interrupted, or paused — otherwise every browser start
+  would hand a burst of dead links to drift and pop several save dialogs.
+- **Handoffs are serialized.** A burst of downloads is handed to drift one at a
+  time (paced ~350 ms apart) so the deep links can't race drift's cold start,
+  which would spawn duplicate save dialogs.
+
 ## Icons
 
 `bun extension/icons/generate.mjs` generates `icons/icon{16,32,48,128}.png`

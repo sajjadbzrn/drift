@@ -108,6 +108,17 @@ const DICT: Record<Lang, Record<string, Tpl>> = {
     moveUp: "Move up",
     moveDown: "Move down",
     startNow: "Start now",
+    setSpeedLimit: "Set speed limit…",
+
+    // selection toolbar
+    nSelected: (p) => `${p.n} selected`,
+    clearSelection: "Clear selection",
+
+    // speed limit editor
+    speedLimitTitle: "Speed limit",
+    speedLimitDesc: "MB/s cap for this download. 0 removes the limit.",
+    unlimited: "Unlimited",
+    speedLimitSaved: "Speed limit updated",
 
     // empty states
     emptyAllTitle: "No downloads yet",
@@ -233,6 +244,14 @@ const DICT: Record<Lang, Record<string, Tpl>> = {
       "Paste your Chrome extension's ID (chrome://extensions → this extension) so Chrome is allowed to talk to drift. Firefox connects automatically.",
     save: "Save",
 
+    // network
+    network: "Network",
+    userAgent: "User-Agent",
+    userAgentDesc:
+      "Sent with download requests. Some sites block drift's default agent; leave empty for the default.",
+    userAgentPlaceholder: "Leave empty for the default",
+    uaReset: "Reset",
+
     // toasts
     dismiss: "Dismiss",
   },
@@ -334,6 +353,17 @@ const DICT: Record<Lang, Record<string, Tpl>> = {
     moveUp: "انتقال به بالا",
     moveDown: "انتقال به پایین",
     startNow: "شروع فوری",
+    setSpeedLimit: "محدودیت سرعت…",
+
+    // selection toolbar
+    nSelected: (p) => `${p.n} انتخاب شده`,
+    clearSelection: "پاک‌کردن انتخاب",
+
+    // speed limit editor
+    speedLimitTitle: "محدودیت سرعت",
+    speedLimitDesc: "سقف سرعت این دانلود بر حسب MB/s. ۰ یعنی بدون محدودیت.",
+    unlimited: "بدون محدودیت",
+    speedLimitSaved: "محدودیت سرعت به‌روزرسانی شد",
 
     // empty states
     emptyAllTitle: "هنوز دانلودی ندارید",
@@ -454,6 +484,14 @@ const DICT: Record<Lang, Record<string, Tpl>> = {
     chromeExtIdsDesc:
       "شناسه افزونه کروم خود را وارد کنید (chrome://extensions → همین افزونه) تا کروم اجازه ارتباط با دریفت را داشته باشد. فایرفاکس خودکار متصل می‌شود.",
     save: "ذخیره",
+
+    // network
+    network: "شبکه",
+    userAgent: "User-Agent",
+    userAgentDesc:
+      "همراه درخواست‌های دانلود ارسال می‌شود. برخی سایت‌ها عامل پیش‌فرض دریفت را مسدود می‌کنند؛ خالی = پیش‌فرض.",
+    userAgentPlaceholder: "برای پیش‌فرض خالی بگذارید",
+    uaReset: "بازنشانی",
 
     // toasts
     dismiss: "بستن",

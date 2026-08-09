@@ -16,8 +16,9 @@ async fn probe_url(
     state: State<'_, Arc<DownloadManager>>,
     url: String,
     referrer: Option<String>,
+    cookies: Option<String>,
 ) -> Result<UrlMeta, String> {
-    download::probe_url(state.client(), &url, referrer.as_deref()).await
+    download::probe_url(&state.client(), &url, referrer.as_deref(), cookies.as_deref()).await
 }
 
 #[tauri::command]
@@ -28,11 +29,21 @@ async fn start_download(
     speed_limit: Option<u64>,
     segmented: Option<bool>,
     referrer: Option<String>,
+    cookies: Option<String>,
 ) -> Result<DownloadInfo, String> {
     state
         .inner()
-        .start_download(url, path, speed_limit, segmented, referrer)
+        .start_download(url, path, speed_limit, segmented, referrer, cookies)
         .await
+}
+
+#[tauri::command]
+fn set_speed_limit(
+    state: State<'_, Arc<DownloadManager>>,
+    id: String,
+    limit: u64,
+) -> Result<(), String> {
+    state.set_speed_limit(&id, limit)
 }
 
 #[tauri::command]
@@ -300,6 +311,7 @@ pub fn run() {
             pause_all_downloads,
             resume_all_downloads,
             reorder_download,
+            set_speed_limit,
             get_downloads,
             get_settings,
             set_settings,

@@ -20,6 +20,7 @@ import { NewDownloadBar } from "./components/NewDownloadBar";
 import { DownloadList } from "./components/DownloadList";
 import { SettingsModal } from "./components/SettingsModal";
 import { ContextMenu, type MenuItem } from "./components/ContextMenu";
+import { SpeedLimitModal } from "./components/SpeedLimitModal";
 import { ToastStack, pushToast, dismissToast } from "./components/Toasts";
 import {
   BoltIcon,
@@ -34,6 +35,7 @@ import {
   RefreshIcon,
   SearchIcon,
   TrashIcon,
+  XIcon,
 } from "./lib/icons";
 import "./App.css";
 
@@ -72,7 +74,8 @@ function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [ctx, setCtx] = useState<CtxState | null>(null);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [limitTarget, setLimitTarget] = useState<DownloadInfo | null>(null);
   const clipboard = useClipboard(true);
   const peakRef = useRef(0);
   const updater = useUpdater();
@@ -182,14 +185,17 @@ function App() {
       }
       if (e.key === "Escape") {
         if (kRefs.current.ctx) { kRefs.current.closeCtx(); return; }
-        setSelectedId(null);
+        setSelectedIds(new Set());
         return;
       }
 
       if (isInput) return;
 
       const list = kRefs.current.sortedAll;
-      const idx = selectedId ? list.findIndex((d) => d.id === selectedId) : -1;
+      // The "anchor" is the most recently selected card — arrow keys move it,
+      // Space toggles it in/out of the selection.
+      const anchor = selectedIds.size > 0 ? [...selectedIds][selectedIds.size - 1] : null;
+      const idx = anchor ? list.findIndex((d) => d.id === anchor) : -1;
       const sel = idx >= 0 ? list[idx] : null;
 
       if (e.key === "ArrowDown" || e.key === "ArrowUp") {
@@ -199,22 +205,28 @@ function App() {
         let next = idx === -1 ? (delta > 0 ? 0 : list.length - 1) : idx + delta;
         if (next < 0) next = list.length - 1;
         if (next >= list.length) next = 0;
-        setSelectedId(list[next].id);
+        setSelectedIds(new Set([list[next].id]));
         return;
       }
 
       if (sel) {
         if (e.key === " ") {
           e.preventDefault();
-          const s = sel.status;
-          if (s === "downloading" || s === "retrying") kRefs.current.runAction(() => api.pause(sel.id), "");
-          else if (s === "paused") kRefs.current.runAction(() => api.resume(sel.id), "");
-          else if (s === "failed" || s === "cancelled") kRefs.current.runAction(() => api.retry(sel.id), "");
+          setSelectedIds((prev) => {
+            const next = new Set(prev);
+            if (next.has(sel.id)) next.delete(sel.id);
+            else next.add(sel.id);
+            return next;
+          });
           return;
         }
         if (e.key === "Delete") {
           e.preventDefault();
-          kRefs.current.removeDownload(sel);
+          const targets =
+            selectedIds.size > 1
+              ? (list.filter((d) => selectedIds.has(d.id)) as DownloadInfo[])
+              : [sel];
+          for (const d of targets) kRefs.current.removeDownload(d);
           return;
         }
         if (e.key === "Enter") {
@@ -227,7 +239,7 @@ function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [selectedId]);
+  }, [selectedIds]);
 
   const counts = useMemo(
     () => ({
@@ -300,9 +312,10 @@ function App() {
       path: string,
       speedLimit: number | null,
       referrer?: string | null,
+      cookies?: string | null,
     ) => {
       try {
-        const d = await api.startDownload(url, path, speedLimit, null, referrer);
+        const d = await api.startDownload(url, path, speedLimit, null, referrer, cookies);
         notify(t("downloadingToast", { name: d.filename }), "success");
         const dir = parentDir(path);
         if (dir && dir !== settings.lastSaveDir) update({ lastSaveDir: dir });
@@ -477,6 +490,53 @@ function App() {
 
   const closeCtx = useCallback(() => setCtx(null), []);
 
+  const toggleSelect = useCallback((id: string, multi: boolean) => {
+    setSelectedIds((prev) => {
+      if (!multi) return new Set([id]);
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const clearSelection = useCallback(() => setSelectedIds(new Set()), []);
+
+  /** Batch action over every selected download (multi-select toolbar). */
+  const batchAction = useCallback(
+    (kind: "pause" | "resume" | "retry" | "remove") => {
+      const targets = downloads.filter((d) => selectedIds.has(d.id));
+      if (kind === "remove") {
+        for (const d of targets) scheduleRemove(d);
+        return;
+      }
+      void runAction(async () => {
+        for (const d of targets) {
+          if (kind === "pause" && isActive(d.status)) await api.pause(d.id);
+          else if (kind === "resume" && d.status === "paused") await api.resume(d.id);
+          else if (kind === "retry" && (d.status === "failed" || d.status === "cancelled")) await api.retry(d.id);
+        }
+      }, "");
+    },
+    [downloads, selectedIds, scheduleRemove, runAction],
+  );
+
+  /** Drag & drop queue reorder — indexes are resolved in the full queue. */
+  const onReorder = useCallback(
+    (dragId: string, overId: string) => {
+      if (dragId === overId) return;
+      const from = sortedAll.findIndex((d) => d.id === dragId);
+      const to = sortedAll.findIndex((d) => d.id === overId);
+      if (from === -1 || to === -1 || from === to) return;
+      // The backend inserts at `to` *after* removing the dragged item, so a
+      // downward drop shifts the target by one — compensate so dropping "on"
+      // a card puts the dragged item exactly in the target's slot.
+      const target = from < to ? to - 1 : to;
+      void runAction(() => api.reorder(dragId, target), "");
+    },
+    [sortedAll, runAction],
+  );
+
   // Keep the keyboard handler's refs in sync with latest callbacks.
   kRefs.current = { sortedAll, runAction, closeCtx, removeDownload, onOpenFile, onOpenFolder, ctx };
 
@@ -510,6 +570,13 @@ function App() {
             await api.reorder(d.id, 0);
             if (d.status === "paused") await api.resume(d.id);
           }, ""),
+      });
+    }
+    if (d.status !== "completed") {
+      items.push({
+        label: t("setSpeedLimit"),
+        icon: <BoltIcon width={14} height={14} />,
+        onClick: () => setLimitTarget(d),
       });
     }
     if (items.length > 0) items.push({ separator: true });
@@ -599,11 +666,65 @@ function App() {
                 notify={notify}
               />
 
+              {selectedIds.size > 1 && (
+                <div className="selection-bar">
+                  <span className="selection-count">
+                    {t("nSelected", { n: num(selectedIds.size) })}
+                  </span>
+                  <div className="selection-actions">
+                    <button
+                      className="btn-ghost btn-sm"
+                      onClick={() => batchAction("pause")}
+                      disabled={!selectedIds.size || !downloads.some((d) => selectedIds.has(d.id) && isActive(d.status))}
+                      title={t("pause")}
+                    >
+                      <PauseIcon width={14} height={14} />
+                      {t("pause")}
+                    </button>
+                    <button
+                      className="btn-ghost btn-sm"
+                      onClick={() => batchAction("resume")}
+                      disabled={!downloads.some((d) => selectedIds.has(d.id) && d.status === "paused")}
+                      title={t("resume")}
+                    >
+                      <PlayIcon width={14} height={14} />
+                      {t("resume")}
+                    </button>
+                    <button
+                      className="btn-ghost btn-sm"
+                      onClick={() => batchAction("retry")}
+                      disabled={!downloads.some((d) => selectedIds.has(d.id) && (d.status === "failed" || d.status === "cancelled"))}
+                      title={t("tryAgain")}
+                    >
+                      <RefreshIcon width={14} height={14} />
+                      {t("tryAgain")}
+                    </button>
+                    <button
+                      className="btn-ghost btn-sm"
+                      onClick={() => batchAction("remove")}
+                      title={t("remove")}
+                    >
+                      <TrashIcon width={14} height={14} />
+                      {t("remove")}
+                    </button>
+                  </div>
+                  <button
+                    className="icon-btn"
+                    onClick={clearSelection}
+                    title={t("clearSelection")}
+                    aria-label={t("clearSelection")}
+                  >
+                    <XIcon width={15} height={15} />
+                  </button>
+                </div>
+              )}
+
               <DownloadList
                 downloads={filtered}
                 filter={filter}
-                selectedId={selectedId}
-                onSelect={setSelectedId}
+                selectedIds={selectedIds}
+                onSelect={toggleSelect}
+                onReorder={onReorder}
                 onContext={onCardContext}
                 onPause={(id) => void runAction(() => api.pause(id), "")}
                 onResume={(id) => void runAction(() => api.resume(id), "")}
@@ -631,6 +752,21 @@ function App() {
           onCheckUpdates={() => void updater.check()}
           onUpdateNow={() => void updater.startUpdate()}
         />
+        {limitTarget && (
+          <SpeedLimitModal
+            d={limitTarget}
+            onClose={() => setLimitTarget(null)}
+            onSave={async (mb) => {
+              const d = limitTarget;
+              try {
+                await api.setSpeedLimit(d.id, Math.round(mb * 1024 * 1024));
+                notify(t("speedLimitSaved"), "success");
+              } catch (e) {
+                notify(String(e), "error");
+              }
+            }}
+          />
+        )}
         <ToastStack toasts={toasts} onDismiss={(id) => dismissToast(setToasts, id)} />
       </div>
     </I18nProvider>

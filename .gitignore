@@ -15,6 +15,9 @@ dist-ssr
 # update signing keys (never commit the private key)
 .keys/
 
+# AI assistant planning state
+.mimocode/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

@@ -21,5 +21,11 @@
   "sentToDrift": { "message": "Sent to drift." },
   "failed": { "message": "Something went wrong." },
   "checking": { "message": "Checking for drift…" },
-  "refresh": { "message": "Check again" }
+  "refresh": { "message": "Check again" },
+  "sendCookies": { "message": "Send cookies with downloads" },
+  "sendCookiesHint": {
+    "message": "Helps downloads from login-protected sites work. Sent only to the file's own site."
+  },
+  "openDrift": { "message": "Open drift" },
+  "openedDrift": { "message": "Opening drift…" }
 }

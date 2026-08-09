@@ -54,6 +54,9 @@ jobs:
           --owner ${{ github.repository_owner }}
           --repo ${{ github.event.repository.name }}
 
+      - name: Package browser extension
+        run: powershell Compress-Archive -Path extension/* -DestinationPath drift-extension.zip -Force
+
       - name: Upload artifacts to the release
         uses: softprops/action-gh-release@v2
         with:
@@ -61,3 +64,4 @@ jobs:
             src-tauri/target/release/bundle/nsis/*-setup.exe
             src-tauri/target/release/bundle/nsis/*-setup.exe.sig
             src-tauri/target/release/bundle/nsis/latest.json
+            drift-extension.zip

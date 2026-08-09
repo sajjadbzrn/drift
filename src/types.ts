@@ -19,6 +19,9 @@ export interface DownloadInfo {
   url: string;
   /** Referer header sent with the requests (from the browser extension handoff). */
   referrer: string | null;
+  /** Cookie header value sent with the requests (extension forwards cookies
+   *  for login-protected downloads). */
+  cookies: string | null;
   filename: string;
   dir: string;
   path: string;
@@ -63,6 +66,8 @@ export interface AppSettings {
   closeToTray: boolean;
   /** Chrome extension IDs allowed to talk to drift's native messaging host. */
   chromeExtIds: string[];
+  /** Custom User-Agent sent with download/probe requests (empty = default). */
+  userAgent: string;
 }
 
 export interface NativeHostStatus {

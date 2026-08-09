@@ -27,6 +27,9 @@ const OVERSCAN = 4;
 export function DownloadList({
   downloads,
   filter,
+  selectedIds,
+  onSelect,
+  onReorder,
   onContext,
   onPause,
   onResume,
@@ -36,11 +39,12 @@ export function DownloadList({
   onOpenFile,
   onOpenFolder,
   onCopy,
-  selectedId,
-  onSelect,
 }: {
   downloads: DownloadInfo[];
   filter: Filter;
+  selectedIds: Set<string>;
+  onSelect: (id: string, multi: boolean) => void;
+  onReorder: (dragId: string, overId: string) => void;
   onContext: (d: DownloadInfo, e: React.MouseEvent) => void;
   onPause: (id: string) => void;
   onResume: (id: string) => void;
@@ -50,14 +54,16 @@ export function DownloadList({
   onOpenFile: (d: DownloadInfo) => void;
   onOpenFolder: (d: DownloadInfo) => void;
   onCopy: (d: DownloadInfo) => void;
-  selectedId: string | null;
-  onSelect: (id: string | null) => void;
 }) {
   const t = useI18n();
 
   const [scrollTop, setScrollTop] = useState(0);
   const [containerHeight, setContainerHeight] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // Drag & drop queue reorder state (ids, resolved to indexes in App).
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [overId, setOverId] = useState<string | null>(null);
 
   const onScroll = useCallback(
     (e: React.UIEvent<HTMLDivElement>) => {
@@ -75,6 +81,49 @@ export function DownloadList({
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+
+  const endDrag = useCallback(() => {
+    setDragId(null);
+    setOverId(null);
+  }, []);
+
+  const renderCard = (d: DownloadInfo, index: number) => (
+    <DownloadCard
+      key={d.id}
+      d={d}
+      index={index}
+      queuePos={d.status === "queued" ? index + 1 : 0}
+      onContext={onContext}
+      onPause={onPause}
+      onResume={onResume}
+      onRetry={onRetry}
+      onCancel={onCancel}
+      onRemove={onRemove}
+      onOpenFile={onOpenFile}
+      onOpenFolder={onOpenFolder}
+      onCopy={onCopy}
+      selected={selectedIds.has(d.id)}
+      onSelect={(multi) => onSelect(d.id, multi)}
+      onDoubleClick={() => {
+        if (d.status === "completed") onOpenFile(d);
+        else onOpenFolder(d);
+      }}
+      dragging={dragId === d.id}
+      dropTarget={overId === d.id && dragId !== d.id}
+      onDragStart={() => setDragId(d.id)}
+      onDragEnd={endDrag}
+      onDragOver={(e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+        setOverId(d.id);
+      }}
+      onDrop={(e) => {
+        e.preventDefault();
+        if (dragId && dragId !== d.id) onReorder(dragId, d.id);
+        endDrag();
+      }}
+    />
+  );
 
   // Regular render when the list is small enough that virtualization overhead
   // would be pointless.
@@ -94,25 +143,7 @@ export function DownloadList({
     }
     return (
       <div className="list" ref={containerRef} onScroll={onScroll}>
-        {downloads.map((d, i) => (
-          <DownloadCard
-            key={d.id}
-            d={d}
-            index={i}
-            queuePos={d.status === "queued" ? i + 1 : 0}
-            onContext={onContext}
-            onPause={onPause}
-            onResume={onResume}
-            onRetry={onRetry}
-            onCancel={onCancel}
-            onRemove={onRemove}
-            onOpenFile={onOpenFile}
-            onOpenFolder={onOpenFolder}
-            onCopy={onCopy}
-            selected={d.id === selectedId}
-            onSelect={() => onSelect(d.id)}
-          />
-        ))}
+        {downloads.map((d, i) => renderCard(d, i))}
       </div>
     );
   }
@@ -127,25 +158,7 @@ export function DownloadList({
     <div className="list" ref={containerRef} onScroll={onScroll}>
       <div style={{ height: totalHeight, position: "relative" }}>
         <div style={{ position: "absolute", top: offsetY, width: "100%" }}>
-          {visible.map((d, i) => (
-            <DownloadCard
-              key={d.id}
-              d={d}
-              index={startIdx + i}
-              queuePos={d.status === "queued" ? startIdx + i + 1 : 0}
-              onContext={onContext}
-              onPause={onPause}
-              onResume={onResume}
-              onRetry={onRetry}
-              onCancel={onCancel}
-              onRemove={onRemove}
-              onOpenFile={onOpenFile}
-              onOpenFolder={onOpenFolder}
-              onCopy={onCopy}
-              selected={d.id === selectedId}
-              onSelect={() => onSelect(d.id)}
-            />
-          ))}
+          {visible.map((d, i) => renderCard(d, startIdx + i))}
         </div>
       </div>
     </div>
