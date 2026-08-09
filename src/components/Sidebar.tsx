@@ -99,7 +99,7 @@ export function Sidebar({
             <div className="stat-mini">
               <span className="stat-mini-label">{t("total")}</span>
               <span className="stat-mini-value" title={t("totalTitle")}>
-                {formatBytes(totalBytes)}
+                {activeCount > 0 ? formatBytes(totalBytes) : "—"}
               </span>
             </div>
             <div className="stat-mini">

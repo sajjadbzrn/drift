@@ -77,7 +77,7 @@ function App() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [limitTarget, setLimitTarget] = useState<DownloadInfo | null>(null);
   const clipboard = useClipboard(true);
-  const peakRef = useRef(0);
+  const [peakSpeed, setPeakSpeed] = useState(0);
   const updater = useUpdater();
   const autoCheckedRef = useRef(false);
   /** Prevent rapid successive folder-open calls that can crash Explorer. */
@@ -266,10 +266,20 @@ function App() {
         .reduce((s, d) => s + d.speed, 0),
     [downloads],
   );
-  if (totalSpeed > peakRef.current) peakRef.current = totalSpeed;
+
+  // Peak speed of the current active burst. It records the fastest totalSpeed
+  // while downloads are running and resets to 0 when the queue goes idle, so
+  // the sidebar shows a clean "—" instead of yesterday's numbers.
+  useEffect(() => {
+    if (counts.active === 0) setPeakSpeed(0);
+    else if (totalSpeed > peakSpeed) setPeakSpeed(totalSpeed);
+  }, [counts.active, totalSpeed, peakSpeed]);
 
   const totalBytes = useMemo(
-    () => downloads.reduce((s, d) => s + d.received, 0),
+    () =>
+      downloads
+        .filter((d) => isActive(d.status))
+        .reduce((s, d) => s + d.received, 0),
     [downloads],
   );
 
@@ -609,7 +619,7 @@ function App() {
             onFilter={setFilter}
             counts={counts}
             totalSpeed={totalSpeed}
-            peakSpeed={peakRef.current}
+            peakSpeed={peakSpeed}
             totalBytes={totalBytes}
             activeCount={counts.active}
             maxConcurrent={settings.maxConcurrent}
