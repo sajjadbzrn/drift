@@ -196,6 +196,9 @@ input {
   display: flex;
   align-items: stretch;
   justify-content: space-between;
+  /* Keep the window controls (minimize/maximize/close) and logo on their
+     usual left/right sides even in Persian RTL mode. */
+  direction: ltr;
   border-bottom: 1px solid var(--border);
   background: color-mix(in srgb, var(--surface) 68%, transparent);
   backdrop-filter: blur(14px);
@@ -225,6 +228,15 @@ input {
   cursor: default;
 }
 
+.titlebar-right {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-inline-end: 14px;
+  cursor: default;
+}
+
 .titlebar-logo {
   width: 20px;
   height: 20px;
@@ -241,31 +253,55 @@ input {
   color: var(--text-2);
 }
 
-.titlebar-controls {
+/* macOS-style traffic-light window controls */
+.traffic-lights {
   display: flex;
-  align-items: stretch;
+  align-items: center;
+  gap: 8px;
+  margin-inline-end: 6px;
 }
 
-.titlebar-btn {
-  width: 46px;
+.tl {
+  width: 12px;
+  height: 12px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
   display: grid;
   place-items: center;
-  color: var(--text-2);
-  transition: background 0.14s, color 0.14s;
+  cursor: pointer;
+  transition: filter 0.14s, transform 0.06s;
+  color: rgba(0, 0, 0, 0.55);
 }
 
-.titlebar-btn:hover {
-  background: var(--surface-3);
-  color: var(--text);
+.tl:hover {
+  filter: brightness(1.06);
 }
 
-.titlebar-btn:active {
-  background: color-mix(in srgb, var(--accent) 22%, transparent);
+.tl:active {
+  transform: scale(0.92);
 }
 
-.titlebar-btn-close:hover {
-  background: var(--err);
-  color: #fff;
+.tl-close {
+  background: #ff5f57;
+}
+
+.tl-min {
+  background: #febc2e;
+}
+
+.tl-max {
+  background: #28c940;
+}
+
+/* macOS only reveals the glyphs on hover */
+.tl svg {
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+
+.traffic-lights:hover .tl svg {
+  opacity: 1;
 }
 
 /* Windows touch/pen drag support */
@@ -2336,11 +2372,6 @@ input {
 /* ============================================================
    RTL (dir="rtl") — logical properties handle most of it; a few fixes:
    ============================================================ */
-[dir="rtl"] .titlebar-controls {
-  /* keep minimize / maximize / close on the right like Windows */
-  direction: ltr;
-}
-
 [dir="rtl"] .toast-timer {
   left: auto;
   right: 0;

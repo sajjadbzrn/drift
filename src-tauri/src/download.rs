@@ -854,14 +854,16 @@ impl DownloadManager {
             }
             received += len;
             chunk_bytes += len;
-            {
+            // One lock per chunk: persist received bytes and read the live limit
+            // together (the limit read no longer takes a second lock). Holding
+            // the info lock while computing effective_limit only locks `settings`
+            // afterwards, which never nests settings->info, so there's no
+            // deadlock risk.
+            let eff_limit = {
                 let mut info = entry.info.lock().unwrap();
                 info.received = received;
-            }
-            // Re-read the limit each chunk so the per-download speed editor
-            // applies live (the lock is cheap). A changed limit restarts the
-            // window so old bytes don't "pay for" the new limit.
-            let eff_limit = self.effective_limit(entry.info.lock().unwrap().speed_limit);
+                self.effective_limit(info.speed_limit)
+            };
             if eff_limit != cur_limit {
                 cur_limit = eff_limit;
                 chunk_bytes = 0;

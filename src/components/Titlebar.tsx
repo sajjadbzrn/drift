@@ -104,34 +104,40 @@ export function Titlebar() {
   return (
     <header className="titlebar">
       <div className="titlebar-left" onMouseDown={onDragMouseDown}>
+        <div
+          className="traffic-lights"
+          onMouseDown={(e) => e.stopPropagation()}
+          onDoubleClick={(e) => e.stopPropagation()}
+        >
+          <button
+            className="tl tl-close"
+            onClick={close}
+            title={t("close")}
+            aria-label={t("close")}
+          >
+            <CloseIcon />
+          </button>
+          <button
+            className="tl tl-min"
+            onClick={minimize}
+            title={t("minimize")}
+            aria-label={t("minimize")}
+          >
+            <MinimizeIcon />
+          </button>
+          <button
+            className="tl tl-max"
+            onClick={toggleMax}
+            title={maximized ? t("restore") : t("maximize")}
+            aria-label={maximized ? t("restore") : t("maximize")}
+          >
+            {maximized ? <RestoreIcon /> : <MaximizeIcon />}
+          </button>
+        </div>
+      </div>
+      <div className="titlebar-right" onMouseDown={onDragMouseDown}>
         <img className="titlebar-logo" src="/drift.png" alt="drift" draggable={false} />
         <span className="titlebar-name">drift</span>
-      </div>
-      <div className="titlebar-controls">
-        <button
-          className="titlebar-btn"
-          onClick={minimize}
-          title={t("minimize")}
-          aria-label={t("minimize")}
-        >
-          <MinimizeIcon />
-        </button>
-        <button
-          className="titlebar-btn"
-          onClick={toggleMax}
-          title={maximized ? t("restore") : t("maximize")}
-          aria-label={maximized ? t("restore") : t("maximize")}
-        >
-          {maximized ? <RestoreIcon /> : <MaximizeIcon />}
-        </button>
-        <button
-          className="titlebar-btn titlebar-btn-close"
-          onClick={close}
-          title={t("close")}
-          aria-label={t("close")}
-        >
-          <CloseIcon />
-        </button>
       </div>
     </header>
   );

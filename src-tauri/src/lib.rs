@@ -105,16 +105,37 @@ fn get_settings(state: State<'_, Arc<DownloadManager>>) -> AppSettings {
 #[tauri::command]
 fn set_settings(state: State<'_, Arc<DownloadManager>>, settings: AppSettings) -> Result<(), String> {
     let app = state.inner().app.clone();
+    let lang_changed = {
+        let cur = state.settings.lock().unwrap();
+        cur.language != settings.language
+    };
     state.set_settings(settings.clone());
     state.flush();
     // Keep the native messaging host manifest in sync (Chrome extension IDs).
     let _ = host::ensure_registered(&app, &settings);
+    if lang_changed {
+        refresh_tray(&app, &settings.language);
+    }
     Ok(())
 }
 
 #[tauri::command]
 fn get_native_host_status(state: State<'_, Arc<DownloadManager>>) -> NativeHostStatus {
     host::status(&state.inner().app)
+}
+
+fn tray_tooltip_text(lang: &str, count: usize) -> String {
+    if count > 0 {
+        if lang == "fa" {
+            format!("دریفت — {} دانلود فعال", count)
+        } else {
+            format!("drift — {} active download{}", count, if count == 1 { "" } else { "s" })
+        }
+    } else if lang == "fa" {
+        "دریفت — مدیر دانلود".into()
+    } else {
+        "drift — download manager".into()
+    }
 }
 
 #[tauri::command]
@@ -127,18 +148,7 @@ fn update_tray_tooltip(app: AppHandle, count: usize) {
             .unwrap()
             .language
             .clone();
-        let tooltip = if count > 0 {
-            if lang == "fa" {
-                format!("دریفت — {} دانلود فعال", count)
-            } else {
-                format!("drift — {} active download{}", count, if count == 1 { "" } else { "s" })
-            }
-        } else if lang == "fa" {
-            "دریفت — مدیر دانلود".into()
-        } else {
-            "drift — download manager".into()
-        };
-        let _ = tray.set_tooltip(Some(&tooltip));
+        let _ = tray.set_tooltip(Some(&tray_tooltip_text(&lang, count)));
     }
 }
 
@@ -150,14 +160,7 @@ fn show_main_window(app: &tauri::AppHandle) {
     }
 }
 
-fn build_tray(app: &tauri::App) -> tauri::Result<()> {
-    let lang = app
-        .state::<Arc<DownloadManager>>()
-        .settings
-        .lock()
-        .unwrap()
-        .language
-        .clone();
+fn tray_menu(app: &tauri::AppHandle, lang: &str) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
     let fa = lang == "fa";
     let show = MenuItem::with_id(
         app,
@@ -188,7 +191,19 @@ fn build_tray(app: &tauri::App) -> tauri::Result<()> {
         true,
         None::<&str>,
     )?;
-    let menu = Menu::with_items(app, &[&show, &pause_all, &resume_all, &sep, &quit])?;
+    Menu::with_items(app, &[&show, &pause_all, &resume_all, &sep, &quit])
+}
+
+fn build_tray(app: &tauri::App) -> tauri::Result<()> {
+    let lang = app
+        .state::<Arc<DownloadManager>>()
+        .settings
+        .lock()
+        .unwrap()
+        .language
+        .clone();
+    let fa = lang == "fa";
+    let menu = tray_menu(app.handle(), &lang)?;
 
     let mut tray = TrayIconBuilder::with_id("main-tray")
         .tooltip(if fa {
@@ -227,6 +242,22 @@ fn build_tray(app: &tauri::App) -> tauri::Result<()> {
         .build(app)?;
 
     Ok(())
+}
+
+/// Rebuild the tray menu + tooltip in the current UI language. Called when the
+/// language setting changes so the hidden-icon context menu localizes without
+/// a restart.
+fn refresh_tray(app: &AppHandle, lang: &str) {
+    if let Some(tray) = app.tray_by_id("main-tray") {
+        if let Ok(menu) = tray_menu(app, lang) {
+            let _ = tray.set_menu(Some(menu));
+        }
+        let count = app
+            .state::<Arc<DownloadManager>>()
+            .active
+            .load(std::sync::atomic::Ordering::SeqCst);
+        let _ = tray.set_tooltip(Some(&tray_tooltip_text(lang, count)));
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

@@ -27,9 +27,11 @@ export function useDownloads() {
               list.sort((a, b) => a.priority - b.priority || b.createdAt - a.createdAt);
               return list;
             }
+            // Progress deltas only update bytes/speed/status — never the queue
+            // order (priority). Skipping the sort here keeps the per-tick cost
+            // at O(n) instead of O(n log n) for every active download.
             const updated = [...prev];
             updated[idx] = next;
-            updated.sort((a, b) => a.priority - b.priority || b.createdAt - a.createdAt);
             return updated;
           });
         }),
