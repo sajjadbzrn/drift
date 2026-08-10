@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 440" width="1200" height="440" role="img" aria-label="drift — Downloads, at full speed.">
+  <defs>
+    <radialGradient id="neb1" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#6366f1"/>
+      <stop offset="100%" stop-color="#6366f1" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="neb2" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#22d3ee"/>
+      <stop offset="100%" stop-color="#22d3ee" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="neb3" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#a855f7"/>
+      <stop offset="100%" stop-color="#a855f7" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="title" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#22d3ee">
+        <animate attributeName="stop-color" values="#22d3ee;#a855f7;#6366f1;#22d3ee" dur="9s" repeatCount="indefinite"/>
+      </stop>
+      <stop offset="100%" stop-color="#a855f7">
+        <animate attributeName="stop-color" values="#a855f7;#6366f1;#22d3ee;#a855f7" dur="9s" repeatCount="indefinite"/>
+      </stop>
+    </linearGradient>
+    <filter id="soft" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="55"/>
+    </filter>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="6" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <style>
+      .p { fill: #ffffff; }
+      @keyframes tw { 0%,100% { opacity:.25 } 50% { opacity:.9 } }
+      .p { animation: tw 4s ease-in-out infinite; }
+    </style>
+  </defs>
+
+  <rect width="1200" height="440" fill="#08080f"/>
+
+  <!-- drifting nebula -->
+  <g filter="url(#soft)" opacity="0.6">
+    <circle cx="300" cy="200" r="200" fill="url(#neb1)">
+      <animate attributeName="cy" values="170;250;170" dur="16s" repeatCount="indefinite"/>
+      <animate attributeName="cx" values="270;360;270" dur="22s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="850" cy="240" r="190" fill="url(#neb2)">
+      <animate attributeName="cy" values="270;180;270" dur="19s" repeatCount="indefinite"/>
+      <animate attributeName="cx" values="880;800;880" dur="24s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="600" cy="220" r="170" fill="url(#neb3)">
+      <animate attributeName="cx" values="560;660;560" dur="20s" repeatCount="indefinite"/>
+      <animate attributeName="cy" values="200;260;200" dur="15s" repeatCount="indefinite"/>
+    </circle>
+  </g>
+
+  <!-- twinkling particles -->
+  <g class="p">
+    <circle cx="180" cy="120" r="2.2"><animate attributeName="opacity" values=".2;.9;.2" dur="3.5s" repeatCount="indefinite"/></circle>
+    <circle cx="420" cy="90" r="1.8"><animate attributeName="opacity" values=".9;.2;.9" dur="4.2s" repeatCount="indefinite"/></circle>
+    <circle cx="700" cy="110" r="2.4"><animate attributeName="opacity" values=".3;.9;.3" dur="3.1s" repeatCount="indefinite"/></circle>
+    <circle cx="980" cy="140" r="1.6"><animate attributeName="opacity" values=".9;.3;.9" dur="4.8s" repeatCount="indefinite"/></circle>
+    <circle cx="300" cy="330" r="2.0"><animate attributeName="opacity" values=".2;.8;.2" dur="3.8s" repeatCount="indefinite"/></circle>
+    <circle cx="560" cy="360" r="1.7"><animate attributeName="opacity" values=".8;.2;.8" dur="4.4s" repeatCount="indefinite"/></circle>
+    <circle cx="860" cy="340" r="2.3"><animate attributeName="opacity" values=".3;.9;.3" dur="3.3s" repeatCount="indefinite"/></circle>
+    <circle cx="1040" cy="300" r="1.9"><animate attributeName="opacity" values=".9;.3;.9" dur="4.1s" repeatCount="indefinite"/></circle>
+    <circle cx="120" cy="260" r="1.5"><animate attributeName="opacity" values=".3;.8;.3" dur="3.6s" repeatCount="indefinite"/></circle>
+  </g>
+
+  <!-- title -->
+  <text x="600" y="215" text-anchor="middle" font-family="'Segoe UI', system-ui, -apple-system, sans-serif" font-size="150" font-weight="700" letter-spacing="8" fill="url(#title)" filter="url(#glow)">drift</text>
+
+  <!-- subtitle -->
+  <text x="600" y="285" text-anchor="middle" font-family="'Segoe UI', system-ui, -apple-system, sans-serif" font-size="30" font-weight="500" letter-spacing="2" fill="#cbd5e1">Downloads, at full speed.</text>
+
+  <!-- animated underline sweep -->
+  <rect x="430" y="312" width="340" height="3" rx="1.5" fill="url(#title)">
+    <animate attributeName="x" values="430;600;430" dur="6s" repeatCount="indefinite"/>
+    <animate attributeName="width" values="340;180;340" dur="6s" repeatCount="indefinite"/>
+  </rect>
+</svg>

@@ -4,17 +4,36 @@ import * as THREE from "three";
 /**
  * A cinematic "cosmic drift" background rendered behind the whole app.
  *
- * Three layered, theme-aware elements give the backdrop depth and life:
- *   1. Nebula  — soft drifting color clouds (animated shader plane).
- *   2. Dust    — glowing sprite particles that twinkle and wander.
- *   3. Constellation — a faint web of connected nodes that pulses and flows.
+ * Layered, theme-aware elements give the backdrop depth and life:
+ *   1. Nebula      — organic, flowing FBM clouds (animated fullscreen shader).
+ *   2. Dust        — soft glowing star sprites with a real bloom-like falloff.
+ *   3. Constellation — a web of connected nodes with energy pulses streaming
+ *      along the links (evokes data flowing through a download).
  *
- * Slow tumble + mouse parallax make it feel alive. It pauses when the window
- * is hidden, falls back to nothing when WebGL is unavailable (the CSS aurora
- * behind us is enough), and honors prefers-reduced-motion with a static frame.
+ * A slow cinematic tumble + mouse parallax make it feel alive. It pauses when
+ * the window is hidden, falls back to nothing when WebGL is unavailable, and
+ * honors prefers-reduced-motion with a single static frame.
  */
 
-/* ---------- dust (glowing sprite points) ---------- */
+/* ---------- soft round glow sprite (generated once) ---------- */
+function makeGlowTexture(): THREE.Texture {
+  const s = 64;
+  const c = document.createElement("canvas");
+  c.width = c.height = s;
+  const ctx = c.getContext("2d")!;
+  const g = ctx.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, s / 2);
+  g.addColorStop(0.0, "rgba(255,255,255,1)");
+  g.addColorStop(0.2, "rgba(255,255,255,0.85)");
+  g.addColorStop(0.5, "rgba(255,255,255,0.22)");
+  g.addColorStop(1.0, "rgba(255,255,255,0)");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, s, s);
+  const tex = new THREE.CanvasTexture(c);
+  tex.needsUpdate = true;
+  return tex;
+}
+
+/* ---------- dust (glowing star sprites) ---------- */
 const DUST_VERT = /* glsl */ `
   attribute float aSize;
   attribute float aSeed;
@@ -26,8 +45,8 @@ const DUST_VERT = /* glsl */ `
     vSeed = aSeed;
     vec3 pos = position;
     pos.x += sin(uTime * 0.22 + aSeed * 12.9) * 0.6;
-    pos.y += cos(uTime * 0.19 + aSeed * 9.7)  * 0.6;
-    pos.z += sin(uTime * 0.16 + aSeed * 7.3)  * 0.55;
+    pos.y += cos(uTime * 0.19 + aSeed * 9.7) * 0.6;
+    pos.z += sin(uTime * 0.16 + aSeed * 7.3) * 0.55;
     vec4 mv = modelViewMatrix * vec4(pos, 1.0);
     gl_PointSize = aSize * uPixelRatio * (uScale / -mv.z);
     gl_Position = projectionMatrix * mv;
@@ -35,6 +54,7 @@ const DUST_VERT = /* glsl */ `
 `;
 
 const DUST_FRAG = /* glsl */ `
+  uniform sampler2D uTex;
   uniform vec3 uColorA;
   uniform vec3 uColorB;
   uniform vec3 uColorC;
@@ -42,19 +62,18 @@ const DUST_FRAG = /* glsl */ `
   uniform float uTime;
   varying float vSeed;
   void main() {
-    vec2 uv = gl_PointCoord - 0.5;
-    float d = length(uv);
-    float alpha = smoothstep(0.5, 0.04, d);
+    vec4 tex = texture2D(uTex, gl_PointCoord);
+    if (tex.a < 0.02) discard;
     float tw = 0.55 + 0.45 * sin(uTime * (0.45 + fract(vSeed * 11.7) * 1.3) + vSeed * 43.0);
     float m = fract(vSeed * 3.7);
     vec3 color = m < 0.5
       ? mix(uColorA, uColorB, m * 2.0)
       : mix(uColorB, uColorC, (m - 0.5) * 2.0);
-    gl_FragColor = vec4(color, alpha * uOpacity * tw);
+    gl_FragColor = vec4(color, tex.a * uOpacity * tw);
   }
 `;
 
-/* ---------- constellation (connected node web) ---------- */
+/* ---------- constellation links ---------- */
 const LINE_VERT = /* glsl */ `
   attribute float aPhase;
   varying float vPhase;
@@ -77,7 +96,43 @@ const LINE_FRAG = /* glsl */ `
   }
 `;
 
-/* ---------- nebula (drifting color clouds) ---------- */
+/* ---------- energy pulses travelling along the links ---------- */
+const PULSE_VERT = /* glsl */ `
+  attribute vec3 aStart;
+  attribute vec3 aEnd;
+  attribute float aPhase;
+  attribute float aSpeed;
+  attribute float aSize;
+  uniform float uPixelRatio;
+  uniform float uScale;
+  uniform float uTime;
+  varying float vT;
+  void main() {
+    float t = fract(uTime * aSpeed + aPhase);
+    vT = t;
+    vec3 pos = mix(aStart, aEnd, t);
+    vec4 mv = modelViewMatrix * vec4(pos, 1.0);
+    gl_PointSize = aSize * uPixelRatio * (uScale / -mv.z);
+    gl_Position = projectionMatrix * mv;
+  }
+`;
+
+const PULSE_FRAG = /* glsl */ `
+  uniform sampler2D uTex;
+  uniform vec3 uColorA;
+  uniform vec3 uColorB;
+  uniform float uOpacity;
+  varying float vT;
+  void main() {
+    vec4 tex = texture2D(uTex, gl_PointCoord);
+    if (tex.a < 0.02) discard;
+    float ends = smoothstep(0.0, 0.14, vT) * smoothstep(1.0, 0.86, vT);
+    vec3 col = mix(uColorB, uColorA, vT);
+    gl_FragColor = vec4(col, tex.a * uOpacity * ends);
+  }
+`;
+
+/* ---------- nebula (organic flowing FBM clouds) ---------- */
 const NEB_VERT = /* glsl */ `
   varying vec2 vUv;
   void main() {
@@ -88,32 +143,58 @@ const NEB_VERT = /* glsl */ `
 
 const NEB_FRAG = /* glsl */ `
   uniform float uTime;
+  uniform float uAspect;
   uniform vec3 uColor1;
   uniform vec3 uColor2;
   uniform vec3 uColor3;
+  uniform vec3 uColor4;
   uniform float uOpacity;
   varying vec2 vUv;
 
-  float blob(vec2 uv, vec2 c, float r) {
-    float d = length(uv - c);
-    return exp(-(d * d) / (r * r));
+  float hash(vec2 p) {
+    p = fract(p * vec2(123.34, 456.21));
+    p += dot(p, p + 34.56);
+    return fract(p.x * p.y);
+  }
+  float noise(vec2 p) {
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    float a = hash(i);
+    float b = hash(i + vec2(1.0, 0.0));
+    float c = hash(i + vec2(0.0, 1.0));
+    float d = hash(i + vec2(1.0, 1.0));
+    vec2 u = f * f * (3.0 - 2.0 * f);
+    return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+  }
+  float fbm(vec2 p) {
+    float v = 0.0;
+    float a = 0.5;
+    for (int i = 0; i < 5; i++) {
+      v += a * noise(p);
+      p = p * 2.02 + vec2(11.3, 7.7);
+      a *= 0.5;
+    }
+    return v;
   }
 
   void main() {
     vec2 uv = vUv;
-    vec2 c1 = vec2(0.32 + 0.12 * sin(uTime * 0.10), 0.38 + 0.10 * cos(uTime * 0.13));
-    vec2 c2 = vec2(0.70 + 0.11 * cos(uTime * 0.11), 0.62 + 0.12 * sin(uTime * 0.09));
-    vec2 c3 = vec2(0.50 + 0.16 * sin(uTime * 0.07), 0.52 + 0.13 * cos(uTime * 0.08));
+    vec2 p = (uv - 0.5) * vec2(uAspect, 1.0) * 3.0;
+    float t = uTime * 0.04;
 
-    float w1 = blob(uv, c1, 0.30);
-    float w2 = blob(uv, c2, 0.26);
-    float w3 = blob(uv, c3, 0.32);
-    float sum = w1 + w2 + w3 + 0.0001;
+    float w = fbm(p * 1.1 + vec2(t, -t * 0.6));
+    float w2 = fbm(p * 1.1 + vec2(-t * 0.7, t) + w * 1.6);
+    float clouds = fbm(p * 1.5 + w * 2.0 + w2);
+    clouds = pow(clamp(clouds, 0.0, 1.0), 1.5);
 
-    vec3 col = (uColor1 * w1 + uColor2 * w2 + uColor3 * w3) / sum;
-    float intensity = clamp(sum * 0.85, 0.0, 1.0);
-    float vig = smoothstep(0.95, 0.18, length(uv - 0.5));
-    gl_FragColor = vec4(col, uOpacity * vig * intensity);
+    vec3 col = mix(uColor1, uColor2, smoothstep(0.15, 0.65, clouds));
+    col = mix(col, uColor3, smoothstep(0.5, 0.9, clouds));
+    float core = smoothstep(0.72, 1.0, clouds);
+    col += core * uColor4 * 0.7;
+
+    float vig = smoothstep(1.15, 0.25, length(uv - 0.5));
+    float alpha = clouds * uOpacity * vig;
+    gl_FragColor = vec4(col, alpha);
   }
 `;
 
@@ -146,7 +227,7 @@ export function ParticleField({ theme }: { theme: "dark" | "light" }) {
         powerPreference: "high-performance",
       });
     } catch {
-      return; // no WebGL — the CSS aurora behind us is enough
+      return;
     }
     renderer.setClearColor(0x000000, 0);
     host.appendChild(renderer.domElement);
@@ -157,15 +238,20 @@ export function ParticleField({ theme }: { theme: "dark" | "light" }) {
 
     const dark = theme === "dark";
 
-    // Shared uniforms -------------------------------------------------------
     const uTime = { value: 0 };
+    const uPixelRatio = { value: Math.min(window.devicePixelRatio || 1, 2) };
+    const uScale = { value: 150 };
+    const uAspect = { value: 1 };
+    const blend = dark ? THREE.AdditiveBlending : THREE.NormalBlending;
+
+    const glowTex = makeGlowTexture();
 
     // ---- dust ------------------------------------------------------------
     const uColorA = dark ? new THREE.Color("#6366f1") : new THREE.Color("#5a5df0");
     const uColorB = dark ? new THREE.Color("#22d3ee") : new THREE.Color("#0e7490");
     const uColorC = dark ? new THREE.Color("#a855f7") : new THREE.Color("#7c3aed");
-    const dustOpacity = dark ? 0.5 : 0.28;
-    const count = reduced ? 0 : 900;
+    const dustOpacity = dark ? 0.55 : 0.3;
+    const count = reduced ? 0 : 1400;
     const rnd = mulberry32(20260810);
     const positions = new Float32Array(count * 3);
     const sizes = new Float32Array(count);
@@ -177,7 +263,7 @@ export function ParticleField({ theme }: { theme: "dark" | "light" }) {
       positions[i * 3 + 1] = Math.sin(a) * r * 0.62;
       positions[i * 3 + 2] = (rnd() - 0.5) * 14;
       const orb = rnd() < 0.16;
-      sizes[i] = orb ? 1.8 + rnd() * 3.0 : 0.5 + rnd() * 1.3;
+      sizes[i] = orb ? 2.2 + rnd() * 3.4 : 0.6 + rnd() * 1.4;
       seeds[i] = rnd();
     }
     const dustGeo = new THREE.BufferGeometry();
@@ -188,8 +274,9 @@ export function ParticleField({ theme }: { theme: "dark" | "light" }) {
       vertexShader: DUST_VERT,
       fragmentShader: DUST_FRAG,
       uniforms: {
-        uPixelRatio: { value: Math.min(window.devicePixelRatio || 1, 2) },
-        uScale: { value: 150 },
+        uTex: { value: glowTex },
+        uPixelRatio,
+        uScale,
         uTime,
         uColorA: { value: uColorA },
         uColorB: { value: uColorB },
@@ -198,10 +285,10 @@ export function ParticleField({ theme }: { theme: "dark" | "light" }) {
       },
       transparent: true,
       depthWrite: false,
-      blending: dark ? THREE.AdditiveBlending : THREE.NormalBlending,
+      blending: blend,
     });
 
-    // ---- constellation ---------------------------------------------------
+    // ---- constellation + flowing energy pulses --------------------------
     const CN = 90;
     const nodes: THREE.Vector3[] = [];
     const crnd = mulberry32(73219);
@@ -216,10 +303,8 @@ export function ParticleField({ theme }: { theme: "dark" | "light" }) {
         ),
       );
     }
-    // connect each node to its 2 nearest neighbours (dedup)
+    const segments: [number, number][] = [];
     const seen = new Set<string>();
-    const linePos: number[] = [];
-    const linePhase: number[] = [];
     const lrnd = mulberry32(555);
     for (let i = 0; i < CN; i++) {
       const dists: { j: number; d: number }[] = [];
@@ -233,12 +318,16 @@ export function ParticleField({ theme }: { theme: "dark" | "light" }) {
         const key = i < j ? `${i}_${j}` : `${j}_${i}`;
         if (seen.has(key)) continue;
         seen.add(key);
-        const pa = lrnd();
-        const pb = lrnd();
-        linePos.push(nodes[i].x, nodes[i].y, nodes[i].z);
-        linePos.push(nodes[j].x, nodes[j].y, nodes[j].z);
-        linePhase.push(pa, pb);
+        segments.push([i, j]);
       }
+    }
+
+    const linePos: number[] = [];
+    const linePhase: number[] = [];
+    for (const [i, j] of segments) {
+      linePos.push(nodes[i].x, nodes[i].y, nodes[i].z);
+      linePos.push(nodes[j].x, nodes[j].y, nodes[j].z);
+      linePhase.push(lrnd(), lrnd());
     }
     const lineGeo = new THREE.BufferGeometry();
     lineGeo.setAttribute(
@@ -256,11 +345,64 @@ export function ParticleField({ theme }: { theme: "dark" | "light" }) {
         uTime,
         uColorA: { value: uColorA },
         uColorB: { value: uColorB },
-        uOpacity: { value: dark ? 0.16 : 0.1 },
+        uOpacity: { value: dark ? 0.18 : 0.12 },
       },
       transparent: true,
       depthWrite: false,
-      blending: dark ? THREE.AdditiveBlending : THREE.NormalBlending,
+      blending: blend,
+    });
+
+    const pStart: number[] = [];
+    const pEnd: number[] = [];
+    const pPhase: number[] = [];
+    const pSpeed: number[] = [];
+    const pSize: number[] = [];
+    const prnd = mulberry32(991);
+    for (const [i, j] of segments) {
+      for (let p = 0; p < 2; p++) {
+        pStart.push(nodes[i].x, nodes[i].y, nodes[i].z);
+        pEnd.push(nodes[j].x, nodes[j].y, nodes[j].z);
+        pPhase.push(prnd() + p * 0.5);
+        pSpeed.push(0.12 + prnd() * 0.22);
+        pSize.push(4.0 + prnd() * 4.0);
+      }
+    }
+    const pulseGeo = new THREE.BufferGeometry();
+    pulseGeo.setAttribute(
+      "aStart",
+      new THREE.BufferAttribute(new Float32Array(pStart), 3),
+    );
+    pulseGeo.setAttribute(
+      "aEnd",
+      new THREE.BufferAttribute(new Float32Array(pEnd), 3),
+    );
+    pulseGeo.setAttribute(
+      "aPhase",
+      new THREE.BufferAttribute(new Float32Array(pPhase), 1),
+    );
+    pulseGeo.setAttribute(
+      "aSpeed",
+      new THREE.BufferAttribute(new Float32Array(pSpeed), 1),
+    );
+    pulseGeo.setAttribute(
+      "aSize",
+      new THREE.BufferAttribute(new Float32Array(pSize), 1),
+    );
+    const pulseMat = new THREE.ShaderMaterial({
+      vertexShader: PULSE_VERT,
+      fragmentShader: PULSE_FRAG,
+      uniforms: {
+        uTex: { value: glowTex },
+        uPixelRatio,
+        uScale,
+        uTime,
+        uColorA: { value: uColorA },
+        uColorB: { value: uColorB },
+        uOpacity: { value: dark ? 1.0 : 0.85 },
+      },
+      transparent: true,
+      depthWrite: false,
+      blending: blend,
     });
 
     // ---- nebula ----------------------------------------------------------
@@ -270,22 +412,24 @@ export function ParticleField({ theme }: { theme: "dark" | "light" }) {
       fragmentShader: NEB_FRAG,
       uniforms: {
         uTime,
+        uAspect,
         uColor1: { value: uColorA },
         uColor2: { value: uColorB },
         uColor3: { value: uColorC },
-        uOpacity: { value: dark ? 0.32 : 0.22 },
+        uColor4: { value: dark ? new THREE.Color("#e879f9") : new THREE.Color("#c084fc") },
+        uOpacity: { value: dark ? 0.5 : 0.32 },
       },
       transparent: true,
       depthWrite: false,
       depthTest: false,
-      blending: dark ? THREE.AdditiveBlending : THREE.NormalBlending,
+      blending: blend,
     });
 
-    // Group the dust + constellation so they tumble together; nebula stays put.
     const group = new THREE.Group();
     group.rotation.set(0.32, 0, 0.12);
     group.add(new THREE.Points(dustGeo, dustMat));
     group.add(new THREE.LineSegments(lineGeo, lineMat));
+    group.add(new THREE.Points(pulseGeo, pulseMat));
     scene.add(group);
 
     const nebCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
@@ -298,12 +442,13 @@ export function ParticleField({ theme }: { theme: "dark" | "light" }) {
     const resize = () => {
       const w = host.clientWidth || window.innerWidth;
       const h = host.clientHeight || window.innerHeight;
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      uAspect.value = w / h;
       renderer.setPixelRatio(dpr);
       renderer.setSize(w, h);
-      dustMat.uniforms.uPixelRatio.value = dpr;
+      uPixelRatio.value = dpr;
     };
     resize();
     const ro = new ResizeObserver(resize);
@@ -320,11 +465,18 @@ export function ParticleField({ theme }: { theme: "dark" | "light" }) {
       window.addEventListener("pointermove", onPointerMove, { passive: true });
     }
 
-    // ---- render loop (pauses when the window is hidden) ------------------
+    // ---- render loop -----------------------------------------------------
     let raf = 0;
     let running = false;
     let elapsed = 0;
     let lastNow = performance.now() / 1000;
+
+    const renderFrame = () => {
+      renderer.autoClear = false;
+      renderer.clear();
+      renderer.render(nebScene, nebCam);
+      renderer.render(scene, camera);
+    };
 
     const tick = () => {
       raf = requestAnimationFrame(tick);
@@ -332,16 +484,14 @@ export function ParticleField({ theme }: { theme: "dark" | "light" }) {
       elapsed += Math.min(now - lastNow, 0.05);
       lastNow = now;
       uTime.value = elapsed;
-      group.rotation.y = elapsed * 0.045;
-      camera.position.x += (tx * 2.4 - camera.position.x) * 0.035;
-      camera.position.y += (ty * 1.6 - camera.position.y) * 0.035;
-      camera.position.z = 26 + Math.sin(elapsed * 0.12) * 1.4;
+      group.rotation.y = elapsed * 0.04;
+      group.rotation.x = 0.32 + Math.sin(elapsed * 0.1) * 0.05 + ty * 0.12;
+      group.rotation.z = 0.12 - tx * 0.1;
+      camera.position.x += (tx * 2.6 - camera.position.x) * 0.035;
+      camera.position.y += (ty * 1.8 - camera.position.y) * 0.035;
+      camera.position.z = 26 + Math.sin(elapsed * 0.12) * 1.6;
       camera.lookAt(0, 0, 0);
-
-      renderer.autoClear = false;
-      renderer.clear();
-      renderer.render(nebScene, nebCam);
-      renderer.render(scene, camera);
+      renderFrame();
     };
 
     const resume = () => {
@@ -376,10 +526,7 @@ export function ParticleField({ theme }: { theme: "dark" | "light" }) {
 
     if (reduced) {
       uTime.value = 3.1;
-      renderer.autoClear = false;
-      renderer.clear();
-      renderer.render(nebScene, nebCam);
-      renderer.render(scene, camera);
+      renderFrame();
     } else {
       running = true;
       tick();
@@ -396,8 +543,11 @@ export function ParticleField({ theme }: { theme: "dark" | "light" }) {
       dustMat.dispose();
       lineGeo.dispose();
       lineMat.dispose();
+      pulseGeo.dispose();
+      pulseMat.dispose();
       nebGeo.dispose();
       nebMat.dispose();
+      glowTex.dispose();
       renderer.dispose();
       if (renderer.domElement.parentNode === host) {
         host.removeChild(renderer.domElement);

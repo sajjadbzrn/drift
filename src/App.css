@@ -1,4 +1,79 @@
 /* ============================================================
+   fonts — Rubik (English) / IranYekan (Persian)
+   ============================================================ */
+@font-face {
+  font-family: "Rubik";
+  src: url("/fonts/Rubik-VariableFont_wght.ttf") format("truetype");
+  font-weight: 100 1000;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Rubik";
+  src: url("/fonts/Rubik-Italic-VariableFont_wght.ttf") format("truetype");
+  font-weight: 100 1000;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "IranYekan";
+  src: url("/fonts/Qs_Iranyekan thin.ttf") format("truetype");
+  font-weight: 100;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "IranYekan";
+  src: url("/fonts/Qs_Iranyekan light.ttf") format("truetype");
+  font-weight: 300;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "IranYekan";
+  src: url("/fonts/Qs_Iranyekan.ttf") format("truetype");
+  font-weight: 400;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "IranYekan";
+  src: url("/fonts/Qs_Iranyekan medium.ttf") format("truetype");
+  font-weight: 500;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "IranYekan";
+  src: url("/fonts/Qs_Iranyekan bold.ttf") format("truetype");
+  font-weight: 700;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "IranYekan";
+  src: url("/fonts/Qs_Iranyekan extrabold.ttf") format("truetype");
+  font-weight: 800;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "IranYekan";
+  src: url("/fonts/Qs_Iranyekan extrablack.ttf") format("truetype");
+  font-weight: 900;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "IranYekan";
+  src: url("/fonts/Qs_Iranyekan black.ttf") format("truetype");
+  font-weight: 950;
+  font-display: swap;
+}
+
+/* ============================================================
    drift — design tokens
    ============================================================ */
 :root,
@@ -30,7 +105,12 @@
   --shadow-pop: 0 24px 64px rgba(0, 0, 0, 0.55);
   --scroll-thumb: rgba(148, 163, 184, 0.24);
   --input-glow: 0 0 0 3px rgba(99, 102, 241, 0.16), 0 0 20px rgba(99, 102, 241, 0.12);
+  --font-sans: "Rubik", -apple-system, "Segoe UI", Roboto, sans-serif;
   color-scheme: dark;
+}
+
+:root:lang(fa) {
+  --font-sans: "IranYekan", "Vazirmatn Variable", -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
 :root[data-theme="light"] {
@@ -80,7 +160,7 @@ body,
 }
 
 body {
-  font-family: "Inter Variable", "Inter", -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-family: var(--font-sans);
   font-size: 14px;
   color: var(--text);
   background: var(--bg);
@@ -958,7 +1038,6 @@ input {
   border: 1px solid var(--border);
   background: var(--surface-2);
   padding: 0 14px;
-  padding-inline-start: 42px;
   font-family: "JetBrains Mono Variable", monospace;
   font-size: 13.5px;
   transition: border-color 0.15s, box-shadow 0.15s;
@@ -966,7 +1045,7 @@ input {
 
 .url-input::placeholder {
   color: var(--text-3);
-  font-family: "Inter Variable", sans-serif;
+  font-family: var(--font-sans);
 }
 
 .url-input:focus {
@@ -989,7 +1068,7 @@ input {
 
 .limit-input::placeholder {
   color: var(--text-3);
-  font-family: "Inter Variable", sans-serif;
+  font-family: var(--font-sans);
 }
 
 .limit-input:focus {
@@ -1063,33 +1142,6 @@ input {
   padding: 0 13px;
   font-size: 12.5px;
   border-radius: 10px;
-}
-
-/* branded leading glyph inside the new-download bar */
-.bar-lead {
-  position: absolute;
-  inset-inline-start: 14px;
-  top: 50%;
-  transform: translateY(-50%);
-  display: grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 9px;
-  color: #fff;
-  background: var(--accent-grad-strong);
-  box-shadow: 0 3px 10px rgba(99, 102, 241, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.25);
-  pointer-events: none;
-  animation: leadPulse 3.2s ease-in-out infinite;
-}
-
-@keyframes leadPulse {
-  0%, 100% {
-    box-shadow: 0 3px 10px rgba(99, 102, 241, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.25);
-  }
-  50% {
-    box-shadow: 0 3px 16px rgba(99, 102, 241, 0.62), 0 0 12px rgba(34, 211, 238, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.3);
-  }
 }
 
 .download-bar-sub {
@@ -1657,13 +1709,46 @@ input {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 18px 20px;
+  gap: 10px;
+  padding: 16px 18px;
   border-bottom: 1px solid var(--border);
   position: sticky;
   top: 0;
   background: color-mix(in srgb, var(--surface) 92%, transparent);
   backdrop-filter: blur(8px);
   z-index: 1;
+}
+
+.modal-head::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--accent) 35%, var(--accent-2) 65%, transparent);
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+.modal-head-left {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-width: 0;
+}
+
+.modal-brand {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  object-fit: contain;
+  border-radius: 9px;
+  padding: 5px;
+  background: linear-gradient(135deg,
+      color-mix(in srgb, var(--accent) 26%, transparent),
+      color-mix(in srgb, var(--accent-2) 18%, transparent));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 32%, transparent);
 }
 
 .modal-title {
@@ -1673,10 +1758,30 @@ input {
 }
 
 .modal-body {
-  padding: 6px 20px 20px;
+  padding: 14px 16px 18px;
   display: flex;
   flex-direction: column;
-  gap: 22px;
+  gap: 14px;
+}
+
+/* group each settings category into its own card */
+.modal-body section {
+  position: relative;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 15px 15px 3px;
+  box-shadow: var(--shadow-card);
+}
+
+/* nested cards sit on the section surface so they stay readable */
+.modal-body section .about-card,
+.modal-body section .update-card {
+  background: var(--surface);
+}
+
+.modal-body section .about-card {
+  margin-bottom: 10px;
 }
 
 .section-label {
@@ -1743,7 +1848,8 @@ input {
 }
 
 .setting-row:hover {
-  background: color-mix(in srgb, var(--surface-2) 55%, transparent);
+  background: color-mix(in srgb, var(--surface-3) 55%, transparent);
+  border-radius: 10px;
 }
 
 .setting-row:last-child {
@@ -2382,10 +2488,10 @@ input {
 }
 
 /* ============================================================
-   Persian (fa) — Vazirmatn + digit support
+   Persian (fa) — IranYekan + digit support
    ============================================================ */
 [lang="fa"] body {
-  font-family: "Vazirmatn Variable", "Inter Variable", -apple-system,
+  font-family: "IranYekan", "Vazirmatn Variable", -apple-system,
     "Segoe UI", Roboto, sans-serif;
 }
 
@@ -2405,7 +2511,7 @@ input {
   letter-spacing: 0;
 }
 
-/* Persian digits render via Vazirmatn (JetBrains Mono has no Persian glyphs) */
+/* Persian digits render via IranYekan (JetBrains Mono has no Persian glyphs) */
 [lang="fa"] .stat-value,
 [lang="fa"] .stat-mini-value,
 [lang="fa"] .meta-speed,
@@ -2418,7 +2524,7 @@ input {
 [lang="fa"] .folder-path,
 [lang="fa"] .clipboard-url,
 [lang="fa"] .batch-url {
-  font-family: "Vazirmatn Variable", "JetBrains Mono Variable", monospace;
+  font-family: "IranYekan", "Vazirmatn Variable", "JetBrains Mono Variable", monospace;
 }
 
 /* ============================================================
@@ -2600,9 +2706,6 @@ input {
   background:
     linear-gradient(135deg, rgba(99, 102, 241, 0.18), rgba(34, 211, 238, 0.12)),
     var(--surface);
-  border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--border));
-  box-shadow: 0 6px 16px rgba(99, 102, 241, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.18);
-  animation: markGlow 3.6s ease-in-out infinite;
 }
 
 .brand-logo {
@@ -2611,8 +2714,6 @@ input {
   object-fit: contain;
   user-select: none;
   -webkit-user-drag: none;
-  filter: drop-shadow(0 2px 6px rgba(99, 102, 241, 0.4));
-  animation: logoGlow 4s ease-in-out infinite;
 }
 
 .brand-mark::after {

@@ -356,9 +356,6 @@ export function NewDownloadBar({
 
       <form className="download-bar" onSubmit={onSubmit}>
         <div className="download-bar-main">
-          <span className="bar-lead" aria-hidden>
-            <ArrowDownIcon width={17} height={17} />
-          </span>
           <input
             id="url-input"
             ref={inputRef}

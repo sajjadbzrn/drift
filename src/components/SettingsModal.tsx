@@ -163,7 +163,10 @@ export function SettingsModal({
     <div className="overlay" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
-          <span className="modal-title">{t("settingsTitle")}</span>
+          <div className="modal-head-left">
+            <img className="modal-brand" src="/drift.png" alt="drift" draggable={false} />
+            <span className="modal-title">{t("settingsTitle")}</span>
+          </div>
           <button className="icon-btn" onClick={onClose} aria-label={t("close")}>
             <XIcon width={16} height={16} />
           </button>
