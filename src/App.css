@@ -342,9 +342,11 @@ input {
   font-weight: 700;
   letter-spacing: -0.02em;
   background: linear-gradient(120deg, var(--text), var(--text) 60%, var(--accent-2));
+  background-size: 220% auto;
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
+  animation: textFlow 8s ease-in-out infinite alternate;
 }
 
 .brand-tag {
@@ -420,7 +422,7 @@ input {
   transform: translateY(-50%) scaleY(0.5);
   opacity: 0;
   box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 65%, transparent);
-  transition: opacity 0.18s, transform 0.18s;
+  transition: opacity 0.22s cubic-bezier(0.34, 1.56, 0.64, 1), transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 .nav-item-active::before {
@@ -502,9 +504,11 @@ input {
   letter-spacing: -0.02em;
   font-variant-numeric: tabular-nums;
   background: linear-gradient(120deg, var(--text), var(--accent-2));
+  background-size: 220% auto;
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
+  animation: textFlow 9s ease-in-out infinite alternate;
 }
 
 .stat-sub {
@@ -694,7 +698,7 @@ input {
   border-radius: 999px;
   padding: 4px 11px;
   font-variant-numeric: tabular-nums;
-  animation: rise 0.25s ease both;
+  animation: rise 0.25s ease both, pillGlow 2.6s ease-in-out infinite;
 }
 
 :root[data-theme="dark"] .speed-pill {
@@ -728,9 +732,11 @@ input {
   font-weight: 700;
   letter-spacing: -0.03em;
   background: linear-gradient(120deg, var(--text), var(--text) 55%, var(--accent-2));
+  background-size: 240% auto;
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
+  animation: textFlow 10s ease-in-out infinite alternate;
 }
 
 .page-count {
@@ -841,7 +847,7 @@ input {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  animation: rise 0.3s ease both;
+  animation: rise 0.3s ease both, borderFlow 14s ease-in-out infinite alternate;
   background:
     linear-gradient(var(--surface), var(--surface)) padding-box,
     linear-gradient(150deg, color-mix(in srgb, var(--accent) 26%, transparent), var(--border) 45%, color-mix(in srgb, var(--accent-2) 22%, transparent)) border-box;
@@ -942,6 +948,7 @@ input {
   display: flex;
   align-items: center;
   gap: 10px;
+  position: relative;
 }
 
 .url-input {
@@ -951,6 +958,7 @@ input {
   border: 1px solid var(--border);
   background: var(--surface-2);
   padding: 0 14px;
+  padding-inline-start: 42px;
   font-family: "JetBrains Mono Variable", monospace;
   font-size: 13.5px;
   transition: border-color 0.15s, box-shadow 0.15s;
@@ -1057,6 +1065,33 @@ input {
   border-radius: 10px;
 }
 
+/* branded leading glyph inside the new-download bar */
+.bar-lead {
+  position: absolute;
+  inset-inline-start: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 9px;
+  color: #fff;
+  background: var(--accent-grad-strong);
+  box-shadow: 0 3px 10px rgba(99, 102, 241, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  pointer-events: none;
+  animation: leadPulse 3.2s ease-in-out infinite;
+}
+
+@keyframes leadPulse {
+  0%, 100% {
+    box-shadow: 0 3px 10px rgba(99, 102, 241, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  }
+  50% {
+    box-shadow: 0 3px 16px rgba(99, 102, 241, 0.62), 0 0 12px rgba(34, 211, 238, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  }
+}
+
 .download-bar-sub {
   display: flex;
   align-items: center;
@@ -1126,7 +1161,7 @@ input {
   border: 1px solid var(--border);
   background: var(--surface);
   box-shadow: var(--shadow-card);
-  animation: rise 0.28s ease both;
+  animation: cardIn 0.45s cubic-bezier(0.22, 0.8, 0.3, 1) both;
   transition: border-color 0.18s, transform 0.18s, box-shadow 0.18s, background-color 0.35s ease;
 }
 
@@ -1313,7 +1348,9 @@ input {
   height: 100%;
   border-radius: 999px;
   overflow: hidden;
-  background: linear-gradient(90deg, #6366f1, #8b5cf6 45%, #22d3ee);
+  background: linear-gradient(90deg, #6366f1, #8b5cf6 45%, #22d3ee, #8b5cf6 70%, #6366f1);
+  background-size: 240% 100%;
+  animation: barFlow 4s linear infinite;
   transition: width 0.3s ease;
   box-shadow: 0 0 12px rgba(99, 102, 241, 0.45);
 }
@@ -1542,9 +1579,9 @@ input {
 
 .empty-icon {
   position: relative;
-  width: 72px;
-  height: 72px;
-  border-radius: 22px;
+  width: 78px;
+  height: 78px;
+  border-radius: 24px;
   display: grid;
   place-items: center;
   color: var(--text-3);
@@ -1555,7 +1592,18 @@ input {
   margin-bottom: 12px;
   box-shadow:
     var(--shadow-card),
-    0 0 0 8px color-mix(in srgb, var(--accent) 6%, transparent);
+    0 0 0 8px color-mix(in srgb, var(--accent) 6%, transparent),
+    0 0 28px color-mix(in srgb, var(--accent) 12%, transparent);
+  animation: floaty 5.5s ease-in-out infinite, markGlow 4s ease-in-out infinite;
+}
+
+.empty-logo {
+  width: 44px;
+  height: 44px;
+  object-fit: contain;
+  user-select: none;
+  -webkit-user-drag: none;
+  filter: drop-shadow(0 4px 12px rgba(99, 102, 241, 0.45));
 }
 
 .empty-title {
@@ -1579,13 +1627,17 @@ input {
   z-index: 40;
   display: grid;
   place-items: center;
-  background: rgba(4, 6, 10, 0.55);
-  backdrop-filter: blur(6px);
+  background:
+    radial-gradient(720px 520px at 50% 22%, color-mix(in srgb, var(--accent) 13%, transparent), transparent 62%),
+    rgba(4, 6, 10, 0.55);
+  backdrop-filter: blur(10px) saturate(1.2);
   animation: fade 0.18s ease both;
 }
 
 :root[data-theme="light"] .overlay {
-  background: rgba(20, 24, 39, 0.3);
+  background:
+    radial-gradient(720px 520px at 50% 22%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 62%),
+    rgba(20, 24, 39, 0.3);
 }
 
 .modal {
@@ -1598,7 +1650,7 @@ input {
     linear-gradient(160deg, color-mix(in srgb, var(--accent) 26%, transparent), var(--border) 40%, transparent) border-box;
   border: 1px solid transparent;
   box-shadow: var(--shadow-pop);
-  animation: pop 0.22s cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
+  animation: pop 0.22s cubic-bezier(0.2, 0.9, 0.3, 1.2) both, borderFlow 14s ease-in-out infinite alternate;
 }
 
 .modal-head {
@@ -1914,7 +1966,7 @@ input {
   background: color-mix(in srgb, var(--surface) 92%, transparent);
   border: 1px solid var(--border);
   box-shadow: var(--shadow-pop);
-  animation: rise 0.25s ease both;
+  animation: toastIn 0.32s cubic-bezier(0.2, 0.9, 0.3, 1.15) both;
   backdrop-filter: blur(16px);
 }
 
@@ -2049,12 +2101,12 @@ input {
 @keyframes aurora {
   from {
     transform: translate3d(0, 0, 0) scale(1);
-    opacity: 0.7;
+    opacity: 0.45;
   }
 
   to {
     transform: translate3d(-26px, 18px, 0) scale(1.1);
-    opacity: 1;
+    opacity: 0.75;
   }
 }
 
@@ -2441,3 +2493,294 @@ input {
   border-color: var(--accent);
   box-shadow: var(--input-glow);
 }
+
+/* ============================================================
+   ✦ polish — cosmic drift, spotlight, flowing gradients
+   ============================================================ */
+
+/* three.js particle field (behind everything) */
+.particle-field {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.particle-field canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* cinematic film grain over the whole window */
+.grain {
+  position: absolute;
+  inset: 0;
+  z-index: 45;
+  pointer-events: none;
+  opacity: 0.04;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 160px 160px;
+}
+
+:root[data-theme="light"] .grain {
+  opacity: 0.07;
+}
+
+/* ---- cursor-follow spotlight on download cards ---- */
+.card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: radial-gradient(340px circle at var(--mx, 50%) var(--my, 50%),
+      color-mix(in srgb, var(--kind, var(--accent)) 15%, transparent),
+      transparent 62%);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.card:hover::after {
+  opacity: 1;
+}
+
+.card-icon {
+  position: relative;
+}
+
+/* completion burst on the file icon */
+.card-just-done .card-icon {
+  animation: donePop 0.7s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+.card-just-done .card-icon::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: inherit;
+  border: 2px solid var(--ok);
+  animation: ringOut 0.8s ease-out both;
+  pointer-events: none;
+}
+
+/* ---- flowing gradient borders ---- */
+.download-bar,
+.batch-card,
+.stat-card,
+.modal,
+.about-card {
+  background-size: 240% 240%;
+}
+
+.download-bar {
+  animation: rise 0.35s ease both, borderFlow 14s ease-in-out infinite alternate;
+}
+
+.stat-card,
+.about-card {
+  animation: borderFlow 14s ease-in-out infinite alternate;
+}
+
+/* ---- sidebar brand mark ---- */
+.brand {
+  gap: 11px;
+}
+
+.brand-mark {
+  position: relative;
+  overflow: hidden;
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background:
+    linear-gradient(135deg, rgba(99, 102, 241, 0.18), rgba(34, 211, 238, 0.12)),
+    var(--surface);
+  border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--border));
+  box-shadow: 0 6px 16px rgba(99, 102, 241, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  animation: markGlow 3.6s ease-in-out infinite;
+}
+
+.brand-logo {
+  width: 26px;
+  height: 26px;
+  object-fit: contain;
+  user-select: none;
+  -webkit-user-drag: none;
+  filter: drop-shadow(0 2px 6px rgba(99, 102, 241, 0.4));
+  animation: logoGlow 4s ease-in-out infinite;
+}
+
+.brand-mark::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(110deg, transparent 30%, rgba(255, 255, 255, 0.4) 50%, transparent 70%);
+  transform: translateX(-130%);
+  animation: sheen 3.2s ease-in-out infinite;
+  pointer-events: none;
+}
+
+/* ---- micro-interactions ---- */
+.titlebar-logo {
+  animation: logoGlow 4s ease-in-out infinite;
+}
+
+.tl:hover {
+  transform: scale(1.12);
+  box-shadow: 0 0 10px rgba(255, 255, 255, 0.3);
+}
+
+.nav-item svg {
+  transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.nav-item:hover svg {
+  transform: translateX(2px) scale(1.08);
+}
+
+.btn-ghost:hover,
+.icon-btn:hover,
+.folder-chip:hover,
+.concurrent-chip:hover {
+  transform: translateY(-1px);
+}
+
+.concurrent-chip-on {
+  transform: none !important;
+}
+
+.empty-icon {
+  animation: floaty 5.5s ease-in-out infinite;
+}
+
+.selection-bar {
+  animation: pop 0.22s cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
+}
+
+.download-bar:focus-within {
+  box-shadow:
+    var(--shadow-card),
+    0 0 0 1px color-mix(in srgb, var(--accent) 24%, transparent),
+    0 0 34px color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+/* ---- new keyframes ---- */
+@keyframes cardIn {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.965);
+    filter: blur(5px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+}
+
+@keyframes borderFlow {
+  to {
+    background-position: 200% 50%;
+  }
+}
+
+@keyframes barFlow {
+  to {
+    background-position: -240% 0;
+  }
+}
+
+@keyframes toastIn {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.95);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes textFlow {
+  to {
+    background-position: 100% 50%;
+  }
+}
+
+@keyframes floaty {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0deg);
+  }
+
+  50% {
+    transform: translateY(-9px) rotate(-1.5deg);
+  }
+}
+
+@keyframes logoGlow {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 5px rgba(99, 102, 241, 0.4));
+  }
+
+  50% {
+    filter: drop-shadow(0 0 12px rgba(99, 102, 241, 0.75)) drop-shadow(0 0 4px rgba(34, 211, 238, 0.5));
+  }
+}
+
+@keyframes markGlow {
+  0%,
+  100% {
+    box-shadow: 0 6px 16px rgba(99, 102, 241, 0.38), inset 0 1px 0 rgba(255, 255, 255, 0.28);
+  }
+
+  50% {
+    box-shadow: 0 6px 26px rgba(99, 102, 241, 0.6), 0 0 18px rgba(34, 211, 238, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.32);
+  }
+}
+
+@keyframes pillGlow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+
+  50% {
+    box-shadow: 0 0 14px color-mix(in srgb, var(--accent-2) 35%, transparent);
+  }
+}
+
+@keyframes donePop {
+  0% {
+    transform: scale(1);
+  }
+
+  35% {
+    transform: scale(1.16);
+  }
+
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes ringOut {
+  from {
+    transform: scale(0.55);
+    opacity: 1;
+  }
+
+  to {
+    transform: scale(1.75);
+    opacity: 0;
+  }
+}
+

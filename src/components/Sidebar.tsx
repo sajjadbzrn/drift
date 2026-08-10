@@ -57,6 +57,9 @@ export function Sidebar({
   return (
     <aside className="sidebar">
       <div className="brand">
+        <span className="brand-mark" aria-hidden>
+          <img className="brand-logo" src="/drift.png" alt="drift" draggable={false} />
+        </span>
         <div className="brand-text">
           <span className="brand-name">{t("appName")}</span>
           <span className="brand-tag">{t("tagline")}</span>

@@ -128,19 +128,23 @@ export function DownloadList({
   // Regular render when the list is small enough that virtualization overhead
   // would be pointless.
   if (downloads.length <= 30) {
-    if (downloads.length === 0) {
-      const keys = EMPTY_KEYS[filter];
-      const Icon = EMPTY_ICONS[filter];
-      return (
-        <div className="empty">
-          <div className="empty-icon">
-            <Icon width={30} height={30} />
+      if (downloads.length === 0) {
+        const keys = EMPTY_KEYS[filter];
+        const Icon = EMPTY_ICONS[filter];
+        return (
+          <div className="empty">
+            <div className="empty-icon">
+              {filter === "all" ? (
+                <img className="empty-logo" src="/drift.png" alt="" draggable={false} />
+              ) : (
+                <Icon width={30} height={30} />
+              )}
+            </div>
+            <span className="empty-title">{t(keys.title)}</span>
+            <span className="empty-sub">{t(keys.sub)}</span>
           </div>
-          <span className="empty-title">{t(keys.title)}</span>
-          <span className="empty-sub">{t(keys.sub)}</span>
-        </div>
-      );
-    }
+        );
+      }
     return (
       <div className="list" ref={containerRef} onScroll={onScroll}>
         {downloads.map((d, i) => renderCard(d, i))}

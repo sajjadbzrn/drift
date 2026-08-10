@@ -21,6 +21,7 @@ import { DownloadList } from "./components/DownloadList";
 import { SettingsModal } from "./components/SettingsModal";
 import { ContextMenu, type MenuItem } from "./components/ContextMenu";
 import { SpeedLimitModal } from "./components/SpeedLimitModal";
+import { ParticleField } from "./components/ParticleField";
 import { ToastStack, pushToast, dismissToast } from "./components/Toasts";
 import {
   BoltIcon,
@@ -612,6 +613,8 @@ function App() {
   return (
     <I18nProvider lang={settings.language}>
       <div className="app">
+        <ParticleField theme={resolvedTheme} />
+        <div className="grain" aria-hidden />
         <Titlebar />
         <div className="app-body">
           <Sidebar

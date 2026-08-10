@@ -15,6 +15,10 @@ use uuid::Uuid;
 /// Files smaller than this stay single-connection.
 pub const SEGMENT_MIN_SIZE: u64 = 16 * 1024 * 1024; // 16 MB
 pub const MAX_SEGMENTS: usize = 8;
+/// How many times a segment retries a 416 (Range Not Satisfiable) before the
+/// download falls back to a single stream. A 416 on a valid range is usually
+/// the host being flaky, so a short retry often succeeds.
+pub const SEGMENT_416_RETRIES: u32 = 3;
 
 /// Time constant (seconds) of the speed smoother. Larger = stabler readout;
 /// ~1 s smooths out bursty TCP sampling without making ETA feel sluggish.
@@ -69,6 +73,11 @@ pub enum AttemptOutcome {
 enum AttemptError {
     Aborted,
     Unsupported,
+    /// A segment request returned 416 Range Not Satisfiable: the server rejected
+    /// the requested byte range, almost always because the real file is smaller
+    /// than the size reported during the initial probe. The caller re-probes the
+    /// true size and recomputes the segment plan instead of failing.
+    RangeInvalid,
     Failed(String),
 }
 
@@ -791,10 +800,15 @@ impl DownloadManager {
             Err(e) => return AttemptOutcome::Failed(e.to_string()),
         };
         let status = resp.status();
+        // 416 on a resume range (`bytes=start-`) means nothing remains: the
+        // partial .part on disk already holds the complete file, so finalize it.
+        let already_complete = status == StatusCode::RANGE_NOT_SATISFIABLE && append;
         let (mut received, append) = if status == StatusCode::PARTIAL_CONTENT {
             (start, true)
         } else if status.is_success() {
             (0u64, false)
+        } else if already_complete {
+            (start, true)
         } else {
             return AttemptOutcome::Failed(format!("HTTP {}", status.as_u16()));
         };
@@ -811,6 +825,11 @@ impl DownloadManager {
             let mut info = entry.info.lock().unwrap();
             if info.total_size.is_none() {
                 info.total_size = learned;
+            }
+            // A 416 on a resume range proves the file is exactly `start` bytes:
+            // the partial .part already contains the whole file.
+            if already_complete {
+                info.total_size = Some(start);
             }
             info.received = received;
         }
@@ -835,6 +854,11 @@ impl DownloadManager {
             Err(e) => return AttemptOutcome::Failed(format!("Cannot write file: {e}")),
         };
 
+        if already_complete {
+            // 416 on a resume range: the partial .part already holds the whole
+            // file, so there is nothing left to download.
+            let _ = file.flush().await;
+        } else {
         let mut stream = resp.bytes_stream();
         let mut chunk_bytes = 0u64;
         let mut limit_instant = Instant::now();
@@ -886,6 +910,7 @@ impl DownloadManager {
             }
         }
         let _ = file.flush().await;
+        }
 
         let action = entry.action.swap(0, Ordering::SeqCst);
         if action != 0 {
@@ -1009,6 +1034,11 @@ impl DownloadManager {
                 Ok(Ok(())) => {}
                 Ok(Err(AttemptError::Aborted)) => {}
                 Ok(Err(AttemptError::Unsupported)) => unsupported = true,
+                // A 416 on a ranged GET means the server rejected the range
+                // (usually a misreported size or a host that doesn't truly honor
+                // ranges). Treat it like unsupported ranges and fall back to a
+                // single stream, which is robust against that.
+                Ok(Err(AttemptError::RangeInvalid)) => unsupported = true,
                 Ok(Err(AttemptError::Failed(msg))) => {
                     if failed.is_none() {
                         failed = Some(msg);
@@ -1221,10 +1251,12 @@ impl DownloadManager {
 
     fn cleanup_parts(&self, entry: &DownloadEntry) {
         let info = entry.info.lock().unwrap();
-        let n = info.segments.len().max(1);
         let fp = PathBuf::from(&info.path);
         drop(info);
-        for i in 0..n {
+        // Remove every possible partial segment file. The segment list may have
+        // been cleared (e.g. on a range fallback) before this runs, so don't rely
+        // on its length — sweep all indices up to MAX_SEGMENTS.
+        for i in 0..(MAX_SEGMENTS + 1) {
             let _ = fs::remove_file(part_path(&fp, i));
         }
     }
@@ -1245,20 +1277,41 @@ async fn download_segment(
     let start_offset = seg.start + seg.received;
     let cookies = entry.info.lock().unwrap().cookies.clone();
 
-    let mut req = client
-        .get(&url)
-        .header(header::RANGE, format!("bytes={start_offset}-{}", seg.end));
-    if let Some(r) = referrer.as_deref() {
-        req = req.header(header::REFERER, r);
-    }
-    if let Some(c) = cookies.as_deref() {
-        if !c.is_empty() {
-            req = req.header(header::COOKIE, c);
+    // A 416 on a valid range is often the host being flaky (e.g. proxies that
+    // intermittently reject ranges), so retry the segment a few times before
+    // giving up and falling back to a single stream.
+    let mut resp = None;
+    for attempt in 0..=SEGMENT_416_RETRIES {
+        let mut req = client
+            .get(&url)
+            .header(header::RANGE, format!("bytes={start_offset}-{}", seg.end));
+        if let Some(r) = referrer.as_deref() {
+            req = req.header(header::REFERER, r);
         }
+        if let Some(c) = cookies.as_deref() {
+            if !c.is_empty() {
+                req = req.header(header::COOKIE, c);
+            }
+        }
+        let r = match req.send().await {
+            Ok(r) => r,
+            Err(e) => return Err(AttemptError::Failed(e.to_string())),
+        };
+        let status = r.status();
+        if status == StatusCode::RANGE_NOT_SATISFIABLE {
+            if attempt < SEGMENT_416_RETRIES {
+                tokio::time::sleep(Duration::from_secs(1 << attempt.min(4))).await;
+                continue;
+            }
+            // Genuinely unsatisfiable range: the probe over-reported the size.
+            return Err(AttemptError::RangeInvalid);
+        }
+        resp = Some(r);
+        break;
     }
-    let resp = match req.send().await {
-        Ok(r) => r,
-        Err(e) => return Err(AttemptError::Failed(e.to_string())),
+    let resp = match resp {
+        Some(r) => r,
+        None => return Err(AttemptError::RangeInvalid),
     };
     let status = resp.status();
     let append = if status == StatusCode::PARTIAL_CONTENT {

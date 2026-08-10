@@ -217,10 +217,33 @@ export function DownloadCard({
   const failed = d.status === "failed" || d.status === "cancelled";
   const history = useSpeedHistory(d.id, d.speed);
   const [folderJustOpened, setFolderJustOpened] = useState(false);
+  // Flash the icon with a ring burst when a download flips to completed.
+  const prevStatus = useRef(d.status);
+  const [justDone, setJustDone] = useState(false);
+  useEffect(() => {
+    if (d.status === "completed") {
+      if (prevStatus.current !== "completed") {
+        setJustDone(true);
+        const id = window.setTimeout(() => setJustDone(false), 1000);
+        prevStatus.current = d.status;
+        return () => window.clearTimeout(id);
+      }
+    } else {
+      setJustDone(false);
+    }
+    prevStatus.current = d.status;
+  }, [d.status]);
+
+  // Track the cursor so the card can paint a soft spotlight under it.
+  const onCardMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    e.currentTarget.style.setProperty("--mx", `${(e.clientX - r.left).toFixed(1)}px`);
+    e.currentTarget.style.setProperty("--my", `${(e.clientY - r.top).toFixed(1)}px`);
+  };
 
   return (
     <div
-      className={`card${failed ? " card-failed" : ""}${selected ? " card-selected" : ""}${dragging ? " card-dragging" : ""}${dropTarget ? " card-drop-target" : ""}`}
+      className={`card${failed ? " card-failed" : ""}${selected ? " card-selected" : ""}${dragging ? " card-dragging" : ""}${dropTarget ? " card-drop-target" : ""}${justDone ? " card-just-done" : ""}`}
       draggable={typeof onDragStart === "function"}
       style={
         {
@@ -229,6 +252,7 @@ export function DownloadCard({
         } as React.CSSProperties
       }
       onContextMenu={(e) => onContext(d, e)}
+      onMouseMove={onCardMove}
       onClick={(e) => {
         if (onSelect) {
           e.preventDefault();
