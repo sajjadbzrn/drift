@@ -31,3 +31,5 @@ dist-ssr
 
 # embedded doc site (separate git repo, not part of drift)
 doc/
+
+.tauri-env
