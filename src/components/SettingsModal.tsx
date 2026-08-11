@@ -5,7 +5,6 @@ import { formatBytes } from "../lib/format";
 import { api } from "../lib/ipc";
 import { XIcon } from "../lib/icons";
 import { useI18n, num } from "../lib/i18n";
-import { isMobile } from "../lib/platform";
 import type { UpdaterPhase } from "../hooks/useUpdater";
 
 const LICENSE_URL = "/license.txt";
@@ -100,7 +99,6 @@ export function SettingsModal({
   onUpdateNow: () => void;
 }) {
   const t = useI18n();
-  const mobile = isMobile();
   const [version, setVersion] = useState("0.1.0");
   const [license, setLicense] = useState<string | null>(null);
   const [licenseOpen, setLicenseOpen] = useState(false);
@@ -393,7 +391,6 @@ export function SettingsModal({
             />
           </section>
 
-          {!mobile && (
           <section>
             <span className="section-label">{t("browserIntegration")}</span>
             <div className="setting-row">
@@ -432,9 +429,7 @@ export function SettingsModal({
               </button>
             </div>
           </section>
-          )}
 
-          {!mobile && (
           <section>
             <span className="section-label">{t("systemSection")}</span>
             <Toggle
@@ -444,7 +439,6 @@ export function SettingsModal({
               desc={t("closeToTrayDesc")}
             />
           </section>
-          )}
 
           <section>
             <span className="section-label">{t("cleanup")}</span>

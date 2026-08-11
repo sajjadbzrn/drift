@@ -166,26 +166,25 @@ const NEB_FRAG = /* glsl */ `
     vec2 u = f * f * (3.0 - 2.0 * f);
     return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
   }
-  float fbm(vec2 p) {
-    float v = 0.0;
-    float a = 0.5;
-    for (int i = 0; i < 5; i++) {
-      v += a * noise(p);
-      p = p * 2.02 + vec2(11.3, 7.7);
-      a *= 0.5;
-    }
-    return v;
-  }
+   float fbm(vec2 p) {
+     float v = 0.0;
+     float a = 0.5;
+     for (int i = 0; i < 4; i++) {
+       v += a * noise(p);
+       p = p * 2.02 + vec2(11.3, 7.7);
+       a *= 0.5;
+     }
+     return v;
+   }
 
-  void main() {
-    vec2 uv = vUv;
-    vec2 p = (uv - 0.5) * vec2(uAspect, 1.0) * 3.0;
-    float t = uTime * 0.04;
+   void main() {
+     vec2 uv = vUv;
+     vec2 p = (uv - 0.5) * vec2(uAspect, 1.0) * 3.0;
+     float t = uTime * 0.04;
 
-    float w = fbm(p * 1.1 + vec2(t, -t * 0.6));
-    float w2 = fbm(p * 1.1 + vec2(-t * 0.7, t) + w * 1.6);
-    float clouds = fbm(p * 1.5 + w * 2.0 + w2);
-    clouds = pow(clamp(clouds, 0.0, 1.0), 1.5);
+     float w = fbm(p * 1.1 + vec2(t, -t * 0.6));
+     float clouds = fbm(p * 1.5 + w * 2.0);
+     clouds = pow(clamp(clouds, 0.0, 1.0), 1.5);
 
     vec3 col = mix(uColor1, uColor2, smoothstep(0.15, 0.65, clouds));
     col = mix(col, uColor3, smoothstep(0.5, 0.9, clouds));
@@ -211,10 +210,8 @@ function mulberry32(seed: number) {
 
 export function ParticleField({
   theme,
-  mobile,
 }: {
   theme: "dark" | "light";
-  mobile?: boolean;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
 
@@ -224,8 +221,7 @@ export function ParticleField({
 
     const reduced =
       window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
-    // On phones we thin the field out so the WebGL backdrop stays cheap.
-    const lite = !!mobile;
+    const lite = false;
 
     let renderer: THREE.WebGLRenderer;
     try {
@@ -247,7 +243,7 @@ export function ParticleField({
     const dark = theme === "dark";
 
     const uTime = { value: 0 };
-    const uPixelRatio = { value: Math.min(window.devicePixelRatio || 1, 2) };
+    const uPixelRatio = { value: Math.min(window.devicePixelRatio || 1, 1.5) };
     const uScale = { value: 150 };
     const uAspect = { value: 1 };
     const blend = dark ? THREE.AdditiveBlending : THREE.NormalBlending;
@@ -259,7 +255,7 @@ export function ParticleField({
     const uColorB = dark ? new THREE.Color("#22d3ee") : new THREE.Color("#0e7490");
     const uColorC = dark ? new THREE.Color("#a855f7") : new THREE.Color("#7c3aed");
     const dustOpacity = dark ? 0.55 : 0.3;
-    const count = reduced ? 0 : lite ? 480 : 1400;
+    const count = reduced ? 0 : lite ? 360 : 700;
     const rnd = mulberry32(20260810);
     const positions = new Float32Array(count * 3);
     const sizes = new Float32Array(count);
@@ -297,7 +293,7 @@ export function ParticleField({
     });
 
     // ---- constellation + flowing energy pulses --------------------------
-    const CN = lite ? 46 : 90;
+    const CN = lite ? 40 : 64;
     const nodes: THREE.Vector3[] = [];
     const crnd = mulberry32(73219);
     for (let i = 0; i < CN; i++) {
@@ -468,7 +464,7 @@ export function ParticleField({
       if (w === lastW && h === lastH) return;
       lastW = w;
       lastH = h;
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
       uAspect.value = w / h;
@@ -499,12 +495,19 @@ export function ParticleField({
     let running = false;
     let elapsed = 0;
     let lastNow = performance.now() / 1000;
+    let acc = 0;
+    // Cap to ~30fps. The backdrop is a slow cosmic drift, so 60fps just wastes
+    // GPU/CPU/battery for no visible benefit.
+    const frameDt = 1 / 30;
 
     const tick = () => {
       raf = requestAnimationFrame(tick);
       const now = performance.now() / 1000;
-      elapsed += Math.min(now - lastNow, 0.05);
+      acc += Math.min(now - lastNow, 0.1);
       lastNow = now;
+      if (acc < frameDt) return;
+      elapsed += acc;
+      acc = 0;
       uTime.value = elapsed;
       group.rotation.y = elapsed * 0.04;
       group.rotation.x = 0.32 + Math.sin(elapsed * 0.1) * 0.05 + ty * 0.12;

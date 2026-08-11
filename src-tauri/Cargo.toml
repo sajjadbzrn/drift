@@ -48,9 +48,8 @@ futures-util = "0.3"
 uuid = { version = "1", features = ["v4"] }
 percent-encoding = "2"
 
-# Desktop-only plugins. The updater and single-instance plugins do not build
-# for mobile targets, so they are restricted to desktop here (see the cfg-gated
-# `.plugin(...)` calls in lib.rs that reference them).
+# Desktop-only plugins: the updater and single-instance plugins are restricted
+# to non-mobile targets (see the `.plugin(...)` calls in lib.rs).
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-single-instance = "2"
 tauri-plugin-updater = "2"
@@ -60,4 +59,18 @@ tauri-plugin-updater = "2"
 winreg = "0.52"
 # ShellExecuteW used by the drift-host relay
 windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+
+# Optimize the release build for a small, fast Windows binary:
+#   - opt-level "z"  : size-focused optimization (the app is I/O-bound, so
+#                      throughput is unaffected while the file shrinks a lot)
+#   - lto            : whole-program optimization (smaller + faster)
+#   - codegen-units 1: better optimization / smaller code
+#   - strip          : drop debug symbols from the shipped .exe
+#   - panic = "abort": no unwinding tables (smaller, slightly faster)
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
 

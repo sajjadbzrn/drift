@@ -7,7 +7,6 @@ import {
   relaunchApp,
   type UpdateInfo,
 } from "../lib/updater";
-import { isMobile } from "../lib/platform";
 
 export type UpdaterPhase =
   | { phase: "idle" }
@@ -31,12 +30,6 @@ export function useUpdater(): Updater {
   const updateRef = useRef<Update | null>(null);
 
   const check = useCallback(async (): Promise<UpdateInfo | null> => {
-    // The updater plugin is desktop-only; report "up to date" on mobile so the
-    // settings UI doesn't show a spurious error.
-    if (isMobile()) {
-      setState({ phase: "up-to-date" });
-      return null;
-    }
     setState({ phase: "checking" });
     try {
       const u = await checkForUpdate();
@@ -57,7 +50,6 @@ export function useUpdater(): Updater {
   }, []);
 
   const startUpdate = useCallback(async () => {
-    if (isMobile()) return;
     const u = updateRef.current;
     if (!u) return;
     setState({ phase: "downloading", received: 0, total: null });

@@ -29,4 +29,23 @@ export default defineConfig(async () => ({
       ignored: ["**/src-tauri/**"],
     },
   },
+
+  // Production build: keep the shipped frontend tiny and fast to parse.
+  build: {
+    // Modern but widely supported target — lets esbuild drop older-shim code.
+    target: "es2020",
+    minify: "esbuild",
+    cssMinify: true,
+    // No sourcemaps in the released bundle.
+    sourcemap: false,
+    // Small files compress better inside the NSIS installer.
+    assetsInlineLimit: 4096,
+    rollupOptions: {
+      output: {
+        // Stable, short filenames; group the heavy 3D lib so it caches well.
+        chunkFileNames: "assets/[name]-[hash].js",
+        entryFileNames: "assets/[name]-[hash].js",
+      },
+    },
+  },
 }));
