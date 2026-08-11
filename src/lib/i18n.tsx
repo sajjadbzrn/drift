@@ -20,12 +20,6 @@ const DICT: Record<Lang, Record<string, Tpl>> = {
     completed: "Completed",
     paused: "Paused",
     failed: "Failed",
-    // mobile filter tabs (short labels)
-    tabAll: "All",
-    tabActive: "Active",
-    tabCompleted: "Completed",
-    tabPaused: "Paused",
-    tabFailed: "Failed",
     downloadsTitle: "Downloads",
     items: (p) => `${p.n} item${Number(p.n) === 1 ? "" : "s"}`,
     clearFinished: "Clear finished",
@@ -110,9 +104,6 @@ const DICT: Record<Lang, Record<string, Tpl>> = {
     showInFolder: "Show in folder",
     copyLink: "Copy link",
     remove: "Remove",
-    // mobile: files are written into the app's own (scoped) folder
-    savedToAppFolder: "Saved in drift's folder",
-    savingToAppFolder: "Saving to drift's folder",
 
     // context menu
     moveUp: "Move up",
@@ -276,11 +267,6 @@ const DICT: Record<Lang, Record<string, Tpl>> = {
     completed: "تکمیل‌شده",
     paused: "متوقف",
     failed: "ناموفق",
-    tabAll: "همه",
-    tabActive: "در حال انجام",
-    tabCompleted: "تکمیل‌شده",
-    tabPaused: "متوقف",
-    tabFailed: "ناموفق",
     downloadsTitle: "دانلودها",
     items: (p) => `${p.n} مورد`,
     clearFinished: "پاک‌کردن موارد کامل",
@@ -364,8 +350,6 @@ const DICT: Record<Lang, Record<string, Tpl>> = {
     showInFolder: "نمایش در پوشه",
     copyLink: "کپی لینک",
     remove: "حذف",
-    savedToAppFolder: "در پوشه دریفت ذخیره شد",
-    savingToAppFolder: "ذخیره در پوشه دریفت",
 
     // context menu
     moveUp: "انتقال به بالا",
