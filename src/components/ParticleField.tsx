@@ -209,7 +209,13 @@ function mulberry32(seed: number) {
   };
 }
 
-export function ParticleField({ theme }: { theme: "dark" | "light" }) {
+export function ParticleField({
+  theme,
+  mobile,
+}: {
+  theme: "dark" | "light";
+  mobile?: boolean;
+}) {
   const hostRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -218,6 +224,8 @@ export function ParticleField({ theme }: { theme: "dark" | "light" }) {
 
     const reduced =
       window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+    // On phones we thin the field out so the WebGL backdrop stays cheap.
+    const lite = !!mobile;
 
     let renderer: THREE.WebGLRenderer;
     try {
@@ -251,7 +259,7 @@ export function ParticleField({ theme }: { theme: "dark" | "light" }) {
     const uColorB = dark ? new THREE.Color("#22d3ee") : new THREE.Color("#0e7490");
     const uColorC = dark ? new THREE.Color("#a855f7") : new THREE.Color("#7c3aed");
     const dustOpacity = dark ? 0.55 : 0.3;
-    const count = reduced ? 0 : 1400;
+    const count = reduced ? 0 : lite ? 480 : 1400;
     const rnd = mulberry32(20260810);
     const positions = new Float32Array(count * 3);
     const sizes = new Float32Array(count);
@@ -289,7 +297,7 @@ export function ParticleField({ theme }: { theme: "dark" | "light" }) {
     });
 
     // ---- constellation + flowing energy pulses --------------------------
-    const CN = 90;
+    const CN = lite ? 46 : 90;
     const nodes: THREE.Vector3[] = [];
     const crnd = mulberry32(73219);
     for (let i = 0; i < CN; i++) {
@@ -357,14 +365,16 @@ export function ParticleField({ theme }: { theme: "dark" | "light" }) {
     const pPhase: number[] = [];
     const pSpeed: number[] = [];
     const pSize: number[] = [];
-    const prnd = mulberry32(991);
-    for (const [i, j] of segments) {
-      for (let p = 0; p < 2; p++) {
-        pStart.push(nodes[i].x, nodes[i].y, nodes[i].z);
-        pEnd.push(nodes[j].x, nodes[j].y, nodes[j].z);
-        pPhase.push(prnd() + p * 0.5);
-        pSpeed.push(0.12 + prnd() * 0.22);
-        pSize.push(4.0 + prnd() * 4.0);
+    if (!lite) {
+      const prnd = mulberry32(991);
+      for (const [i, j] of segments) {
+        for (let p = 0; p < 2; p++) {
+          pStart.push(nodes[i].x, nodes[i].y, nodes[i].z);
+          pEnd.push(nodes[j].x, nodes[j].y, nodes[j].z);
+          pPhase.push(prnd() + p * 0.5);
+          pSpeed.push(0.12 + prnd() * 0.22);
+          pSize.push(4.0 + prnd() * 4.0);
+        }
       }
     }
     const pulseGeo = new THREE.BufferGeometry();
@@ -480,7 +490,7 @@ export function ParticleField({ theme }: { theme: "dark" | "light" }) {
       tx = (e.clientX / window.innerWidth - 0.5) * 2;
       ty = (e.clientY / window.innerHeight - 0.5) * 2;
     };
-    if (!reduced) {
+    if (!reduced && !lite) {
       window.addEventListener("pointermove", onPointerMove, { passive: true });
     }
 

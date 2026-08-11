@@ -1,6 +1,6 @@
 [package]
 name = "drift"
-version = "0.2.3"
+version = "0.3.1"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
@@ -21,6 +21,10 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 # Its presence tells the extension drift is installed, and every download
 # request is forwarded to drift through the drift:// deep link. It is built
 # separately and bundled via `bundle.externalBin` (see scripts/build-host.mjs).
+# Native messaging host — Windows-only (talks to the Chrome/Firefox extension
+# via stdio). The source itself is cfg-gated to Windows-only APIs, so it
+# compiles on every target but is only meaningful (and only bundled via
+# binaries/drift-host) on Windows — see tauri.windows.conf.json.
 [[bin]]
 name = "drift-host"
 path = "src/bin/drift_host.rs"
@@ -34,20 +38,26 @@ tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-clipboard-manager = "2"
 tauri-plugin-notification = "2"
-tauri-plugin-single-instance = "2"
 tauri-plugin-deep-link = "2"
-tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-reqwest = { version = "0.12", features = ["stream"] }
+reqwest = { version = "0.12", default-features = false, features = ["stream", "rustls-tls"] }
 tokio = { version = "1", features = ["fs", "io-util", "sync", "time", "macros"] }
 futures-util = "0.3"
 uuid = { version = "1", features = ["v4"] }
 percent-encoding = "2"
+
+# Desktop-only plugins. The updater and single-instance plugins do not build
+# for mobile targets, so they are restricted to desktop here (see the cfg-gated
+# `.plugin(...)` calls in lib.rs that reference them).
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-single-instance = "2"
+tauri-plugin-updater = "2"
+
 # Native messaging host registration (Windows registry keys)
+[target.'cfg(windows)'.dependencies]
 winreg = "0.52"
 # ShellExecuteW used by the drift-host relay
-[target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 

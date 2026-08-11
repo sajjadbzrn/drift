@@ -14,8 +14,11 @@ import { useDownloads } from "./hooks/useDownloads";
 import { useSettings } from "./hooks/useSettings";
 import { useClipboard } from "./hooks/useClipboard";
 import { useUpdater } from "./hooks/useUpdater";
+import { isMobile } from "./lib/platform";
 import { Titlebar } from "./components/Titlebar";
 import { Sidebar } from "./components/Sidebar";
+import { MobileBar } from "./components/MobileBar";
+import { MobileQueueBar } from "./components/MobileQueueBar";
 import { NewDownloadBar } from "./components/NewDownloadBar";
 import { DownloadList } from "./components/DownloadList";
 import { SettingsModal } from "./components/SettingsModal";
@@ -81,6 +84,8 @@ function App() {
   const [peakSpeed, setPeakSpeed] = useState(0);
   const updater = useUpdater();
   const autoCheckedRef = useRef(false);
+  /** True on phones/tablets — switches to the touch layout and mobile flows. */
+  const mobile = useMemo(() => isMobile(), []);
   /** Prevent rapid successive folder-open calls that can crash Explorer. */
   const folderOpenGate = useRef(0);
   /** Downloads pending removal — show undo toast, delete after 6s. */
@@ -124,8 +129,9 @@ function App() {
   }, []);
 
   // Silent update check once settings have loaded (and only once per session).
+  // Skipped on mobile — the updater plugin is desktop-only.
   useEffect(() => {
-    if (!settingsLoaded || autoCheckedRef.current) return;
+    if (!settingsLoaded || autoCheckedRef.current || mobile) return;
     autoCheckedRef.current = true;
     void (async () => {
       try {
@@ -255,10 +261,11 @@ function App() {
     [downloads],
   );
 
-  // Keep the tray tooltip in sync with active download count.
+  // Keep the tray tooltip in sync with active download count (desktop only).
   useEffect(() => {
+    if (mobile) return;
     void api.updateTrayTooltip(counts.active).catch(() => {});
-  }, [counts.active]);
+  }, [counts.active, mobile]);
 
   const totalSpeed = useMemo(
     () =>
@@ -464,17 +471,27 @@ function App() {
 
   const onOpenFile = useCallback(
     async (d: DownloadInfo) => {
+      // On mobile the OS file manager / shared-downloads handoff isn't
+      // available the same way; just let the user know where it landed.
+      if (mobile) {
+        notify(t("savedToAppFolder"), "info");
+        return;
+      }
       try {
         await openPath(d.path);
       } catch {
         notify(t("couldNotOpenFile"), "error");
       }
     },
-    [notify, t],
+    [mobile, notify, t],
   );
 
   const onOpenFolder = useCallback(
     async (d: DownloadInfo) => {
+      if (mobile) {
+        notify(t("savedToAppFolder"), "info");
+        return;
+      }
       const now = Date.now();
       if (now - folderOpenGate.current < 500) {
         notify(t("waitFolder"), "info");
@@ -487,7 +504,7 @@ function App() {
         notify(t("couldNotOpenFolder"), "error");
       }
     },
-    [notify, t],
+    [mobile, notify, t],
   );
 
   const onCardContext = useCallback(
@@ -612,29 +629,44 @@ function App() {
 
   return (
     <I18nProvider lang={settings.language}>
-      <div className="app">
-        <ParticleField theme={resolvedTheme} />
+      <div className={`app${mobile ? " is-mobile" : ""}`}>
+        <ParticleField theme={resolvedTheme} mobile={mobile} />
         <div className="grain" aria-hidden />
-        <Titlebar />
+        {!mobile && <Titlebar />}
         <div className="app-body">
-          <Sidebar
-            filter={filter}
-            onFilter={setFilter}
-            counts={counts}
-            totalSpeed={totalSpeed}
-            peakSpeed={peakSpeed}
-            totalBytes={totalBytes}
-            activeCount={counts.active}
-            maxConcurrent={settings.maxConcurrent}
-            onMaxConcurrent={(v) => update({ maxConcurrent: v })}
-            theme={resolvedTheme}
-            onToggleTheme={() =>
-              update({ theme: resolvedTheme === "dark" ? "light" : "dark" })
-            }
-            onOpenSettings={() => setSettingsOpen(true)}
-            onPauseAll={() => void runAction(() => api.pauseAll(), "")}
-            onResumeAll={() => void runAction(() => api.resumeAll(), "")}
-          />
+          {!mobile && (
+            <Sidebar
+              filter={filter}
+              onFilter={setFilter}
+              counts={counts}
+              totalSpeed={totalSpeed}
+              peakSpeed={peakSpeed}
+              totalBytes={totalBytes}
+              activeCount={counts.active}
+              maxConcurrent={settings.maxConcurrent}
+              onMaxConcurrent={(v) => update({ maxConcurrent: v })}
+              theme={resolvedTheme}
+              onToggleTheme={() =>
+                update({ theme: resolvedTheme === "dark" ? "light" : "dark" })
+              }
+              onOpenSettings={() => setSettingsOpen(true)}
+              onPauseAll={() => void runAction(() => api.pauseAll(), "")}
+              onResumeAll={() => void runAction(() => api.resumeAll(), "")}
+            />
+          )}
+
+          {mobile && (
+            <MobileBar
+              filter={filter}
+              onFilter={setFilter}
+              counts={counts}
+              theme={resolvedTheme}
+              onToggleTheme={() =>
+                update({ theme: resolvedTheme === "dark" ? "light" : "dark" })
+              }
+              onOpenSettings={() => setSettingsOpen(true)}
+            />
+          )}
 
           <main className="main">
             <div className="main-inner">
@@ -672,6 +704,7 @@ function App() {
 
               <NewDownloadBar
                 settings={settings}
+                mobile={mobile}
                 existingUrls={existingUrls}
                 hit={clipboard.hit}
                 onHitHandled={clipboard.clear}
@@ -750,6 +783,16 @@ function App() {
               />
             </div>
           </main>
+
+          {mobile && (
+            <MobileQueueBar
+              totalSpeed={totalSpeed}
+              activeCount={counts.active}
+              pausedCount={counts.paused}
+              onPauseAll={() => void runAction(() => api.pauseAll(), "")}
+              onResumeAll={() => void runAction(() => api.resumeAll(), "")}
+            />
+          )}
         </div>
 
         {ctx && (

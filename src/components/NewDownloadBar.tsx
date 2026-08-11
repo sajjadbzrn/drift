@@ -64,6 +64,7 @@ function parseDeepLink(raw: string): DeepLink | null {
 
 export function NewDownloadBar({
   settings,
+  mobile,
   existingUrls,
   hit,
   onHitHandled,
@@ -71,6 +72,7 @@ export function NewDownloadBar({
   notify,
 }: {
   settings: AppSettings;
+  mobile?: boolean;
   existingUrls: Set<string>;
   hit: ClipboardHit | null;
   onHitHandled: () => void;
@@ -113,6 +115,8 @@ export function NewDownloadBar({
   };
 
   const changeFolder = async () => {
+    // Native folder pickers aren't supported on Android/iOS — skip silently.
+    if (mobile) return;
     try {
       const chosen = await open({
         directory: true,
@@ -155,8 +159,13 @@ export function NewDownloadBar({
       // Prefer the hint from the browser when the probe only found a generic name.
       const probeName = meta.filename || "download";
       const name = opts?.filename && probeName === "download" ? opts.filename : probeName;
-      if (settings.autoSave && folder) {
-        // Auto-save: skip the dialog, let the backend pick a unique name.
+      // On mobile, or with auto-save on, there is no native save dialog: write
+      // straight into the chosen/last folder with the server-provided name.
+      if (mobile || settings.autoSave) {
+        if (!folder) {
+          notify(t("chooseFolderFirst"), "error");
+          return;
+        }
         chosen = joinPath(folder, name);
       } else {
         const baseDir = folder ?? "";
@@ -388,20 +397,24 @@ export function NewDownloadBar({
           )}
         </div>
         <div className="download-bar-sub">
-          <button
-            type="button"
-            className="folder-chip"
-            onClick={() => void changeFolder()}
-            title={folder || t("chooseFolder")}
-          >
-            <FolderIcon width={14} height={14} />
-            <span className="folder-path">
-              {folder && folder.length > 52
-                ? "…" + folder.slice(folder.length - 52)
-                : folder || t("chooseFolder")}
-            </span>
-            <span className="folder-change">{t("change")}</span>
-          </button>
+          {mobile ? (
+            <span className="bar-hint">{t("savingToAppFolder")}</span>
+          ) : (
+            <button
+              type="button"
+              className="folder-chip"
+              onClick={() => void changeFolder()}
+              title={folder || t("chooseFolder")}
+            >
+              <FolderIcon width={14} height={14} />
+              <span className="folder-path">
+                {folder && folder.length > 52
+                  ? "…" + folder.slice(folder.length - 52)
+                  : folder || t("chooseFolder")}
+              </span>
+              <span className="folder-change">{t("change")}</span>
+            </button>
+          )}
           <span className="bar-hint">
             {limitBytes()
               ? t("cappedAt", { v: formatBytes(limitBytes()!) })
