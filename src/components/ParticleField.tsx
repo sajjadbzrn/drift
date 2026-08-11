@@ -438,20 +438,39 @@ export function ParticleField({ theme }: { theme: "dark" | "light" }) {
     const nebScene = new THREE.Scene();
     nebScene.add(neb);
 
+    const renderFrame = () => {
+      renderer.autoClear = false;
+      renderer.clear();
+      renderer.render(nebScene, nebCam);
+      renderer.render(scene, camera);
+    };
+
     // ---- resize ----------------------------------------------------------
-    const resize = () => {
-      const w = host.clientWidth || window.innerWidth;
-      const h = host.clientHeight || window.innerHeight;
+    // ResizeObserver fires synchronously during a window drag, while rAF is
+    // throttled by the OS — so we re-apply the size AND repaint immediately
+    // here. Otherwise setSize() clears the GL buffer but nothing redraws until
+    // the drag stops, which shows as black flashes / jumps.
+    let lastW = 0;
+    let lastH = 0;
+    const doResize = () => {
+      const w = Math.max(1, Math.round(host.clientWidth || window.innerWidth));
+      const h = Math.max(1, Math.round(host.clientHeight || window.innerHeight));
+      if (w === lastW && h === lastH) return;
+      lastW = w;
+      lastH = h;
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
       uAspect.value = w / h;
       renderer.setPixelRatio(dpr);
-      renderer.setSize(w, h);
+      // updateStyle=false: let the CSS (width/height:100%) drive display size
+      // and only resize the drawing buffer, avoiding inline-style churn.
+      renderer.setSize(w, h, false);
       uPixelRatio.value = dpr;
+      renderFrame();
     };
-    resize();
-    const ro = new ResizeObserver(resize);
+    doResize();
+    const ro = new ResizeObserver(doResize);
     ro.observe(host);
 
     // ---- mouse parallax --------------------------------------------------
@@ -470,13 +489,6 @@ export function ParticleField({ theme }: { theme: "dark" | "light" }) {
     let running = false;
     let elapsed = 0;
     let lastNow = performance.now() / 1000;
-
-    const renderFrame = () => {
-      renderer.autoClear = false;
-      renderer.clear();
-      renderer.render(nebScene, nebCam);
-      renderer.render(scene, camera);
-    };
 
     const tick = () => {
       raf = requestAnimationFrame(tick);
