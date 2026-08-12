@@ -122,7 +122,7 @@ jobs:
       - name: Flatten artifacts into one folder
         run: |
           mkdir -p dist
-          find staging -type f -exec cp -t dist/ {} +
+          find staging -type f \( -name '*.exe' -o -name '*.deb' -o -name '*.AppImage' -o -name '*.zip' -o -name '*.sig' -o -name 'latest.json' \) -exec cp -t dist/ {} +
 
       - name: Generate combined updater manifest
         run: >
