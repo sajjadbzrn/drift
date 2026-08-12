@@ -148,8 +148,8 @@ jobs:
           bun scripts/build-host.mjs --target x86_64-apple-darwin
           mkdir -p src-tauri/target/universal-apple-darwin/release
           lipo -create \
-            src-tauri/target/aarch64-apple-darwin/release/drift-host \
-            src-tauri/target/x86_64-apple-darwin/release/drift-host \
+            src-tauri/binaries/drift-host-aarch64-apple-darwin \
+            src-tauri/binaries/drift-host-x86_64-apple-darwin \
             -output src-tauri/target/universal-apple-darwin/release/drift-host
 
       - name: Build release bundles (universal)
