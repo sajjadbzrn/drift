@@ -18,12 +18,18 @@ on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release (e.g. v0.3.3)'
+        required: true
+        type: string
 
 permissions:
   contents: write
 
 env:
   TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+  ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
 
 jobs:
   build-windows:
@@ -53,9 +59,9 @@ jobs:
 
       - name: Stage artifacts
         run: |
-          mkdir -Force dist
-          copy src-tauri\target\release\bundle\nsis\* dist\
-          copy drift-extension.zip dist\
+          mkdir -p dist
+          cp src-tauri/target/release/bundle/nsis/* dist/
+          cp drift-extension.zip dist/
 
       - uses: actions/upload-artifact@v4
         with:
@@ -124,21 +130,36 @@ jobs:
           mkdir -p dist
           find staging -type f \( -name '*.exe' -o -name '*.deb' -o -name '*.AppImage' -o -name '*.zip' -o -name '*.sig' -o -name 'latest.json' \) -exec cp -t dist/ {} +
 
+      - name: Determine version tag
+        id: version
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            echo "tag=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          elif [ -n "${{ github.event.inputs.tag }}" ]; then
+            echo "tag=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
+          else
+            echo "No tag found. Skipping release creation."
+            echo "skip=true" >> $GITHUB_OUTPUT
+          fi
+
       - name: Generate combined updater manifest
-        run: >
-          bun scripts/make-update-json.mjs
-          --version ${{ github.ref_name }}
-          --owner ${{ github.repository_owner }}
-          --repo ${{ github.event.repository.name }}
-          --dir dist
+        run: |
+          VERSION="${{ steps.version.outputs.tag }}"
+          bun scripts/make-update-json.mjs \
+            --version $VERSION \
+            --owner ${{ github.repository_owner }} \
+            --repo ${{ github.event.repository.name }} \
+            --dir dist
 
       - name: Upload artifacts to the release
+        if: steps.version.outputs.skip != 'true'
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.version.outputs.tag }}
           files: |
             dist/*
           body: |
-            ## drift v${{ github.ref_name }}
+            ## drift ${{ steps.version.outputs.tag }}
 
             A cross-platform release — **drift now ships installers for Windows and Linux**, with in-place auto-update.
 
