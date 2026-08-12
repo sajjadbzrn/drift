@@ -1,35 +1,44 @@
 name: Release
 
-# Build signed installers/artifacts whenever a v* tag is pushed:
+# Build signed installers/artifacts for Windows, Linux and macOS whenever a
+# v* tag is pushed:
 #
-#   bun scripts/bump-version.mjs 0.3.1
-#   git add -A && git commit -m "Release v0.3.1"
-#   git tag v0.3.1 && git push && git push --tags
+#   bun scripts/bump-version.mjs 0.3.3
+#   git add -A && git commit -m "Release v0.3.3"
+#   git tag v0.3.3 && git push && git push --tags
 #
-# The workflow uploads:
-#   - Windows: drift_<version>_x64-setup.exe, its .sig and latest.json
-#   - the browser extension zip
-# to the GitHub release. Users update in place from Settings -> Updates.
+# The workflow:
+#   - Windows (nsis)   builds on windows-latest
+#   - Linux   (deb + AppImage) builds on ubuntu-latest
+#   - macOS   (universal dmg) builds on macos-latest
+# and uploads every installer + its .sig, the browser extension zip, and a
+# single combined latest.json (covering all three platforms) to the GitHub
+# release. Users update in place from Settings -> Updates.
 #
 # First-time setup:
 #   1. Create a GitHub repo and push this project.
 #   2. Add the Windows signing private key as a repo secret TAURI_SIGNING_PRIVATE_KEY
-#      (it lives locally in .keys/drift.key).
+#      (it lives locally in .keys/drift.key). The same key signs all platforms.
 #   3. In src-tauri/tauri.conf.json, replace OWNER/REPO in the updater
 #      endpoint with your actual GitHub owner/repo.
+#   4. (macOS only) add the Apple signing secrets below so the .dmg is
+#      code-signed and notarized — without them the macOS build is unsigned and
+#      Gatekeeper will block it on users' machines.
 
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
+env:
+  TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+
 jobs:
-  release:
+  build-windows:
     runs-on: windows-latest
-    permissions:
-      contents: write
-    env:
-      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
     steps:
       - uses: actions/checkout@v4
 
@@ -50,21 +59,150 @@ jobs:
       - name: Build release bundles
         run: bun run tauri build --bundles nsis
 
-      - name: Generate updater manifest
+      - name: Package browser extension
+        run: powershell Compress-Archive -Path extension/* -DestinationPath drift-extension.zip -Force
+
+      - name: Stage artifacts
+        run: |
+          mkdir dist
+          copy src-tauri\target\release\bundle\nsis\* dist\
+          copy drift-extension.zip dist\
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: dist
+          if-no-files-found: error
+
+  build-ubuntu:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Install frontend dependencies
+        run: bun install
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libjavascriptcoregtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libssl-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Build release bundles
+        run: bun run tauri build --bundles deb,appimage
+
+      - name: Stage artifacts
+        run: |
+          mkdir -p dist
+          cp src-tauri/target/release/bundle/deb/* dist/
+          cp src-tauri/target/release/bundle/appimage/* dist/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ubuntu
+          path: dist
+          if-no-files-found: error
+
+  build-macos:
+    runs-on: macos-latest
+    env:
+      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Install frontend dependencies
+        run: bun install
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Build release bundles (universal)
+        run: bun run tauri build --target universal-apple-darwin --bundles dmg
+
+      - name: Stage artifacts
+        run: |
+          mkdir -p dist
+          cp src-tauri/target/release/bundle/dmg/* dist/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: dist
+          if-no-files-found: error
+
+  release:
+    needs: [build-windows, build-ubuntu, build-macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: staging
+
+      - name: Flatten artifacts into one folder
+        run: |
+          mkdir -p dist
+          find staging -type f -exec cp -t dist/ {} +
+
+      - name: Generate combined updater manifest
         run: >
           bun scripts/make-update-json.mjs
           --version ${{ github.ref_name }}
           --owner ${{ github.repository_owner }}
           --repo ${{ github.event.repository.name }}
-
-      - name: Package browser extension
-        run: powershell Compress-Archive -Path extension/* -DestinationPath drift-extension.zip -Force
+          --dir dist
 
       - name: Upload artifacts to the release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            src-tauri/target/release/bundle/nsis/*-setup.exe
-            src-tauri/target/release/bundle/nsis/*-setup.exe.sig
-            src-tauri/target/release/bundle/nsis/latest.json
-            drift-extension.zip
+            dist/*
+          body: |
+            ## drift v${{ github.ref_name }}
+
+            A cross-platform release — **drift now ships installers for Windows, Linux and macOS**, with in-place auto-update on all three.
+
+            ### Highlights
+            - **New platforms** — grab the Windows NSIS installer, a Linux `.deb` / `.AppImage`, or a universal macOS `.dmg` (Intel + Apple Silicon) from the assets below.
+            - **Fresh logo** — the browser companion extension now uses the new drift logo (regenerated with correct aspect-ratio, no more stretching).
+            - **Living background** — the cosmic drift animation keeps moving even when the window loses focus; only the mouse parallax pauses, so it feels alive without eating the GPU.
+            - **No more white flash** — the window now paints dark from the very first frame, so there's no blink of white before the UI loads.
+            - **Smarter updates** — a single combined updater manifest keeps every platform current from *Settings → Updates*.
+
+            ### Install
+            - **Windows**: run `drift_*_x64-setup.exe`
+            - **Linux**: `sudo dpkg -i drift_*_amd64.deb` (or use the AppImage)
+            - **macOS**: open `drift_*_universal.dmg` and drag drift to Applications
+
+            > macOS note: unsigned builds are blocked by Gatekeeper. If the `.dmg` isn't notarized, right-click → Open, or sign it with your Apple credentials.
+

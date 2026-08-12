@@ -480,9 +480,13 @@ export function ParticleField({
     ro.observe(host);
 
     // ---- mouse parallax --------------------------------------------------
+    // The automatic cosmic drift keeps running no matter what; only the
+    // mouse-driven parallax is suppressed while the window is unfocused.
+    let focused = true;
     let tx = 0;
     let ty = 0;
     const onPointerMove = (e: PointerEvent) => {
+      if (!focused) return;
       tx = (e.clientX / window.innerWidth - 0.5) * 2;
       ty = (e.clientY / window.innerHeight - 0.5) * 2;
     };
@@ -537,14 +541,13 @@ export function ParticleField({
     };
     document.addEventListener("visibilitychange", onVisibility);
 
-    const onWinBlur = () => {
-      if (reduced || !running) return;
-      running = false;
-      cancelAnimationFrame(raf);
-    };
+    // Track focus so the automatic drift keeps animating when the window is
+    // unfocused (it just stops reacting to the mouse). No rAF pausing here.
     const onWinFocus = () => {
-      if (reduced) return;
-      resume();
+      focused = true;
+    };
+    const onWinBlur = () => {
+      focused = false;
     };
     window.addEventListener("blur", onWinBlur);
     window.addEventListener("focus", onWinFocus);

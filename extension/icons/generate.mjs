@@ -225,8 +225,31 @@ console.log(
 );
 
 mkdirSync(OUT_DIR, { recursive: true });
+// Fraction of the canvas kept as transparent margin around the logo. A little
+// breathing room keeps tall/wide wordmarks from touching the icon edges.
+const PAD = 0.0;
 for (const size of SIZES) {
-  const rgba = resizeRgba(src.rgba, src.width, src.height, size, size);
-  writeFileSync(join(OUT_DIR, `icon${size}.png`), encodePng(size, size, rgba));
+  const margin = Math.round(size * PAD);
+  const inner = Math.max(1, size - margin * 2);
+  // "Contain": scale the logo to fit inside the inner box without distorting
+  // its aspect ratio, then centre it on a transparent square canvas.
+  const scale = Math.min(inner / src.width, inner / src.height);
+  const w = Math.max(1, Math.round(src.width * scale));
+  const h = Math.max(1, Math.round(src.height * scale));
+  const resized = resizeRgba(src.rgba, src.width, src.height, w, h);
+  const out = Buffer.alloc(size * size * 4); // fully transparent by default
+  const ox = Math.floor((size - w) / 2);
+  const oy = Math.floor((size - h) / 2);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const si = (y * w + x) * 4;
+      const di = ((oy + y) * size + (ox + x)) * 4;
+      out[di] = resized[si];
+      out[di + 1] = resized[si + 1];
+      out[di + 2] = resized[si + 2];
+      out[di + 3] = resized[si + 3];
+    }
+  }
+  writeFileSync(join(OUT_DIR, `icon${size}.png`), encodePng(size, size, out));
   console.log(`wrote extension/icons/icon${size}.png`);
 }
