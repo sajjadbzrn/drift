@@ -64,7 +64,7 @@ jobs:
 
       - name: Stage artifacts
         run: |
-          mkdir dist
+          mkdir -Force dist
           copy src-tauri\target\release\bundle\nsis\* dist\
           copy drift-extension.zip dist\
 
@@ -108,8 +108,8 @@ jobs:
       - name: Stage artifacts
         run: |
           mkdir -p dist
-          cp src-tauri/target/release/bundle/deb/* dist/
-          cp src-tauri/target/release/bundle/appimage/* dist/
+          cp -r src-tauri/target/release/bundle/deb/* dist/
+          cp -r src-tauri/target/release/bundle/appimage/* dist/
 
       - uses: actions/upload-artifact@v4
         with:
@@ -141,6 +141,16 @@ jobs:
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+
+      - name: Build native messaging host (universal)
+        run: |
+          bun scripts/build-host.mjs --target aarch64-apple-darwin
+          bun scripts/build-host.mjs --target x86_64-apple-darwin
+          mkdir -p src-tauri/target/universal-apple-darwin/release
+          lipo -create \
+            src-tauri/target/aarch64-apple-darwin/release/drift-host \
+            src-tauri/target/x86_64-apple-darwin/release/drift-host \
+            -output src-tauri/target/universal-apple-darwin/release/drift-host
 
       - name: Build release bundles (universal)
         run: bun run tauri build --target universal-apple-darwin --bundles dmg
