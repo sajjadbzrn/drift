@@ -1,6 +1,6 @@
 name: Release
 
-# Build signed installers/artifacts for Windows, Linux and macOS whenever a
+# Build signed installers/artifacts for Windows and Linux whenever a
 # v* tag is pushed:
 #
 #   bun scripts/bump-version.mjs 0.3.3
@@ -10,20 +10,9 @@ name: Release
 # The workflow:
 #   - Windows (nsis)   builds on windows-latest
 #   - Linux   (deb + AppImage) builds on ubuntu-latest
-#   - macOS   (universal dmg) builds on macos-latest
 # and uploads every installer + its .sig, the browser extension zip, and a
-# single combined latest.json (covering all three platforms) to the GitHub
+# single combined latest.json (covering both platforms) to the GitHub
 # release. Users update in place from Settings -> Updates.
-#
-# First-time setup:
-#   1. Create a GitHub repo and push this project.
-#   2. Add the Windows signing private key as a repo secret TAURI_SIGNING_PRIVATE_KEY
-#      (it lives locally in .keys/drift.key). The same key signs all platforms.
-#   3. In src-tauri/tauri.conf.json, replace OWNER/REPO in the updater
-#      endpoint with your actual GitHub owner/repo.
-#   4. (macOS only) add the Apple signing secrets below so the .dmg is
-#      code-signed and notarized — without them the macOS build is unsigned and
-#      Gatekeeper will block it on users' machines.
 
 on:
   push:
@@ -117,57 +106,8 @@ jobs:
           path: dist
           if-no-files-found: error
 
-  build-macos:
-    runs-on: macos-latest
-    env:
-      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-      APPLE_ID: ${{ secrets.APPLE_ID }}
-      APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: oven-sh/setup-bun@v2
-
-      - name: Install frontend dependencies
-        run: bun install
-
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-apple-darwin,x86_64-apple-darwin
-
-      - uses: swatinem/rust-cache@v2
-        with:
-          workspaces: src-tauri
-
-      - name: Build native messaging host (universal)
-        run: |
-          bun scripts/build-host.mjs --target aarch64-apple-darwin
-          bun scripts/build-host.mjs --target x86_64-apple-darwin
-          mkdir -p src-tauri/target/universal-apple-darwin/release
-          lipo -create \
-            src-tauri/binaries/drift-host-aarch64-apple-darwin \
-            src-tauri/binaries/drift-host-x86_64-apple-darwin \
-            -output src-tauri/target/universal-apple-darwin/release/drift-host
-
-      - name: Build release bundles (universal)
-        run: bun run tauri build --target universal-apple-darwin --bundles dmg
-
-      - name: Stage artifacts
-        run: |
-          mkdir -p dist
-          cp src-tauri/target/release/bundle/dmg/* dist/
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: macos
-          path: dist
-          if-no-files-found: error
-
   release:
-    needs: [build-windows, build-ubuntu, build-macos]
+    needs: [build-windows, build-ubuntu]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -200,11 +140,11 @@ jobs:
           body: |
             ## drift v${{ github.ref_name }}
 
-            A cross-platform release — **drift now ships installers for Windows, Linux and macOS**, with in-place auto-update on all three.
+            A cross-platform release — **drift now ships installers for Windows and Linux**, with in-place auto-update.
 
             ### Highlights
-            - **New platforms** — grab the Windows NSIS installer, a Linux `.deb` / `.AppImage`, or a universal macOS `.dmg` (Intel + Apple Silicon) from the assets below.
-            - **Fresh logo** — the browser companion extension now uses the new drift logo (regenerated with correct aspect-ratio, no more stretching).
+            - **Windows + Linux** — grab the Windows NSIS installer or a Linux `.deb` / `.AppImage` from the assets below.
+            - **Fresh logo** — the browser companion extension now uses the new drift logo.
             - **Living background** — the cosmic drift animation keeps moving even when the window loses focus; only the mouse parallax pauses, so it feels alive without eating the GPU.
             - **No more white flash** — the window now paints dark from the very first frame, so there's no blink of white before the UI loads.
             - **Smarter updates** — a single combined updater manifest keeps every platform current from *Settings → Updates*.
@@ -212,7 +152,3 @@ jobs:
             ### Install
             - **Windows**: run `drift_*_x64-setup.exe`
             - **Linux**: `sudo dpkg -i drift_*_amd64.deb` (or use the AppImage)
-            - **macOS**: open `drift_*_universal.dmg` and drag drift to Applications
-
-            > macOS note: unsigned builds are blocked by Gatekeeper. If the `.dmg` isn't notarized, right-click → Open, or sign it with your Apple credentials.
-
