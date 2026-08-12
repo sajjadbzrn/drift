@@ -58,6 +58,7 @@ jobs:
         run: powershell Compress-Archive -Path extension/* -DestinationPath drift-extension.zip -Force
 
       - name: Stage artifacts
+        shell: bash
         run: |
           mkdir -p dist
           cp src-tauri/target/release/bundle/nsis/* dist/
