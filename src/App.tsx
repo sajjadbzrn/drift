@@ -21,6 +21,7 @@ import { DownloadList } from "./components/DownloadList";
 import { SettingsModal } from "./components/SettingsModal";
 import { ContextMenu, type MenuItem } from "./components/ContextMenu";
 import { SpeedLimitModal } from "./components/SpeedLimitModal";
+import { BatchImportModal } from "./components/BatchImportModal";
 import { ParticleField } from "./components/ParticleField";
 import { ToastStack, pushToast, dismissToast } from "./components/Toasts";
 import {
@@ -77,6 +78,7 @@ function App() {
   const [ctx, setCtx] = useState<CtxState | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [limitTarget, setLimitTarget] = useState<DownloadInfo | null>(null);
+  const [batchOpen, setBatchOpen] = useState(false);
   const clipboard = useClipboard(true);
   const [peakSpeed, setPeakSpeed] = useState(0);
   const updater = useUpdater();
@@ -324,9 +326,20 @@ function App() {
       speedLimit: number | null,
       referrer?: string | null,
       cookies?: string | null,
+      hash?: string | null,
+      proxy?: string | null,
     ) => {
       try {
-        const d = await api.startDownload(url, path, speedLimit, null, referrer, cookies);
+        const d = await api.startDownload(
+          url,
+          path,
+          speedLimit,
+          null,
+          referrer,
+          cookies,
+          hash,
+          proxy,
+        );
         notify(t("downloadingToast", { name: d.filename }), "success");
         const dir = parentDir(path);
         if (dir && dir !== settings.lastSaveDir) update({ lastSaveDir: dir });
@@ -676,8 +689,17 @@ function App() {
                 hit={clipboard.hit}
                 onHitHandled={clipboard.clear}
                 onStart={startDownload}
+                onOpenBatch={() => setBatchOpen(true)}
                 notify={notify}
               />
+
+              {batchOpen && (
+                <BatchImportModal
+                  settings={settings}
+                  notify={notify}
+                  onClose={() => setBatchOpen(false)}
+                />
+              )}
 
               {selectedIds.size > 1 && (
                 <div className="selection-bar">

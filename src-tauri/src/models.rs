@@ -11,6 +11,44 @@ pub mod status {
     pub const CANCELLED: &str = "cancelled";
 }
 
+/// A rule that routes a download into a subfolder based on its file extension
+/// or MIME type. `pattern` is a comma-separated list of extensions (e.g.
+/// "mp4,mkv") or a MIME fragment (e.g. "video/"). `folder` is the subfolder
+/// (relative to the chosen save dir) the file is written into.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CategoryRule {
+    pub pattern: String,
+    pub folder: String,
+}
+
+impl Default for CategoryRule {
+    fn default() -> Self {
+        Self {
+            pattern: String::new(),
+            folder: String::new(),
+        }
+    }
+}
+
+fn default_category_rules() -> Vec<CategoryRule> {
+    let raw: &[(&str, &str)] = &[
+        ("mp4,mkv,avi,mov,webm,flv", "Videos"),
+        ("mp3,wav,flac,ogg,m4a,aac", "Music"),
+        ("jpg,jpeg,png,gif,webp,svg,bmp,heic", "Images"),
+        ("zip,rar,7z,tar,gz,bz2,xz", "Archives"),
+        ("pdf,doc,docx,xls,xlsx,ppt,pptx,txt,epub,mobi", "Documents"),
+        ("exe,msi,dmg,appimage,apk", "Apps"),
+        ("iso,img,dmg.bin", "Disk Images"),
+    ];
+    raw.iter()
+        .map(|(p, f)| CategoryRule {
+            pattern: p.to_string(),
+            folder: f.to_string(),
+        })
+        .collect()
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SegmentInfo {
@@ -54,6 +92,17 @@ pub struct DownloadInfo {
     pub supports_ranges: bool,
     pub retries: u32,
     pub speed_limit: u64,
+    /// Expected SHA-256 (lowercase hex). When set, the completed file is
+    /// verified against it; a mismatch marks the download failed.
+    #[serde(default)]
+    pub hash: Option<String>,
+    /// True once the completed file matched `hash` (or when no hash was set).
+    #[serde(default)]
+    pub verified: bool,
+    /// Per-download proxy override (e.g. "socks5://127.0.0.1:1080"). Empty =
+    /// use the global proxy setting.
+    #[serde(default)]
+    pub proxy: Option<String>,
     pub completed_at: Option<u64>,
     /// Queue position: lower value = closer to the front. Reassigned 0..n-1
     /// by reorder; new downloads get the lowest value minus one so they land
@@ -94,6 +143,19 @@ pub struct AppSettings {
     /// built-in "drift/<version>" agent. Some sites block unknown agents.
     #[serde(default)]
     pub user_agent: String,
+    /// Proxy mode: "system" (use OS/env proxy), "none" (no proxy), or
+    /// "custom" (use `proxy_url`). Empty = "system".
+    #[serde(default)]
+    pub proxy_mode: String,
+    /// Custom proxy URL used when `proxy_mode` is "custom".
+    #[serde(default)]
+    pub proxy_url: String,
+    /// Route downloads into per-type subfolders using `category_rules`.
+    #[serde(default)]
+    pub auto_categorize: bool,
+    /// Rules that map extensions/MIME types to subfolders.
+    #[serde(default)]
+    pub category_rules: Vec<CategoryRule>,
 }
 
 impl Default for AppSettings {
@@ -113,6 +175,10 @@ impl Default for AppSettings {
             language: "en".into(),
             chrome_ext_ids: Vec::new(),
             user_agent: String::new(),
+            proxy_mode: "system".into(),
+            proxy_url: String::new(),
+            auto_categorize: false,
+            category_rules: default_category_rules(),
         }
     }
 }

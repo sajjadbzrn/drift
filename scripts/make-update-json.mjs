@@ -6,7 +6,13 @@
 // GitHub release, so in-place updates work on every OS.
 //
 // Usage:
-//   bun scripts/make-update-json.mjs --version v0.3.0 --owner <owner> --repo <repo> --dir <bundle-dir>
+//   bun scripts/make-update-json.mjs --version v0.3.0 --owner <owner> --repo <repo> --dir <bundle-dir> [--mirror <base>]
+//
+// The --mirror flag prefixes every download URL with a public GitHub mirror
+// (e.g. https://ghproxy.net). This is needed because GitHub's release asset CDN
+// (release-assets.githubusercontent.com) is blocked on some networks, which
+// makes the Tauri updater fail with "error sending request for url". The mirror
+// proxies both the manifest and the installer bytes.
 
 import { existsSync, readFileSync, writeFileSync, readdirSync } from "node:fs";
 import { join, resolve, basename } from "node:path";
@@ -16,23 +22,30 @@ import { fileURLToPath } from "node:url";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = resolve(__dirname, "..");
 
+// Public GitHub mirror used for the installer download URLs (see above).
+const DEFAULT_MIRROR = "";
+
 function parseArgs(argv) {
-  const out = { version: "", owner: "", repo: "", dir: "" };
+  const out = { version: "", owner: "", repo: "", dir: "", mirror: "" };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--version" && argv[i + 1]) out.version = argv[++i];
     else if (a === "--owner" && argv[i + 1]) out.owner = argv[++i];
     else if (a === "--repo" && argv[i + 1]) out.repo = argv[++i];
     else if (a === "--dir" && argv[i + 1]) out.dir = argv[++i];
+    else if (a === "--mirror" && argv[i + 1]) out.mirror = argv[++i];
   }
   return out;
 }
 
-const { version: rawVersion, owner, repo, dir } = parseArgs(process.argv.slice(2));
+const { version: rawVersion, owner, repo, dir, mirror: rawMirror } = parseArgs(process.argv.slice(2));
 if (!rawVersion || !owner || !repo) {
-  console.error("usage: make-update-json.mjs --version <vX.Y.Z> --owner <owner> --repo <repo> [--dir <bundle-dir>]");
+  console.error("usage: make-update-json.mjs --version <vX.Y.Z> --owner <owner> --repo <repo> [--dir <bundle-dir>] [--mirror <base>]");
   process.exit(1);
 }
+
+// Normalize the mirror base (strip a trailing slash, add none if empty).
+const mirror = rawMirror ? rawMirror.replace(/\/+$/, "") : DEFAULT_MIRROR;
 
 const version = rawVersion.replace(/^v/, "");
 const tag = `v${version}`;
@@ -92,10 +105,15 @@ for (const { installer, platform, sigPath } of sigs) {
   // First match per platform wins (deb before appimage is already filtered out).
   if (platforms[platform]) continue;
   const signature = readFileSync(sigPath, "utf8").trim();
-  const url = `https://github.com/${owner}/${repo}/releases/download/${tag}/${installer}`;
+  const githubUrl = `https://github.com/${owner}/${repo}/releases/download/${tag}/${installer}`;
+  // When a mirror is configured the installer URL is prefixed with it; the
+  // drift.ir Pages Function does this rewriting server-side, so by default the
+  // manifest keeps plain GitHub URLs.
+  const url = mirror ? `${mirror}/${githubUrl}` : githubUrl;
   platforms[platform] = { signature, url };
   console.log(`  ${platform}: ${installer}`);
 }
+console.log(`  mirror: ${mirror}`);
 
 const manifest = {
   version,

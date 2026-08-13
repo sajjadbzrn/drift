@@ -37,6 +37,12 @@ export interface DownloadInfo {
   supportsRanges: boolean;
   retries: number;
   speedLimit: number;
+  /** Expected SHA-256 (hex). When set, the file is verified on completion. */
+  hash: string | null;
+  /** True once the file matched `hash` (or when no hash was set). */
+  verified: boolean;
+  /** Per-download proxy override. Empty = use the global proxy setting. */
+  proxy: string | null;
   completedAt: number | null;
   /** Queue position: lower = closer to the front (0 = first). */
   priority: number;
@@ -68,6 +74,21 @@ export interface AppSettings {
   chromeExtIds: string[];
   /** Custom User-Agent sent with download/probe requests (empty = default). */
   userAgent: string;
+  /** Proxy mode: "system" | "none" | "custom". */
+  proxyMode: "system" | "none" | "custom";
+  /** Custom proxy URL used when proxyMode is "custom". */
+  proxyUrl: string;
+  /** Route downloads into per-type subfolders using categoryRules. */
+  autoCategorize: boolean;
+  /** Rules mapping extensions/MIME types to subfolders. */
+  categoryRules: CategoryRule[];
+}
+
+export interface CategoryRule {
+  /** Comma-separated extensions (e.g. "mp4,mkv") or a MIME fragment ("video/"). */
+  pattern: string;
+  /** Subfolder (relative to the save dir) the file is written into. */
+  folder: string;
 }
 
 export interface NativeHostStatus {

@@ -11,6 +11,7 @@ import {
 import {
   AppIcon,
   ArchiveIcon,
+  CheckCircleIcon,
   CodeIcon,
   ExternalIcon,
   FileIcon,
@@ -283,6 +284,11 @@ export function DownloadCard({
               <span className="chip chip-accent" title={t("segmentedTitle")}>
                 <BoltIcon width={11} height={11} />
                 {num(d.segments.length)}×
+              </span>
+            )}
+            {d.hash && d.verified && (
+              <span className="chip chip-ok" title={t("verified")}>
+                <CheckCircleIcon width={11} height={11} />
               </span>
             )}
             {d.speedLimit > 0 && (

@@ -7,7 +7,7 @@ import { getCurrent } from "@tauri-apps/plugin-deep-link";
 import { api } from "../lib/ipc";
 import type { AppSettings } from "../types";
 import { formatBytes, looksLikeUrl } from "../lib/format";
-import { ArrowDownIcon, ClipboardIcon, FolderIcon, XIcon } from "../lib/icons";
+import { ArrowDownIcon, ClipboardIcon, FolderIcon, InboxIcon, SettingsIcon, XIcon } from "../lib/icons";
 import { useI18n, num } from "../lib/i18n";
 import type { ClipboardHit } from "../hooks/useClipboard";
 
@@ -68,6 +68,7 @@ export function NewDownloadBar({
   hit,
   onHitHandled,
   onStart,
+  onOpenBatch,
   notify,
 }: {
   settings: AppSettings;
@@ -80,7 +81,10 @@ export function NewDownloadBar({
     speedLimit: number | null,
     referrer?: string | null,
     cookies?: string | null,
+    hash?: string | null,
+    proxy?: string | null,
   ) => void;
+  onOpenBatch: () => void;
   notify: (msg: string, kind: "success" | "error" | "info") => void;
 }) {
   const t = useI18n();
@@ -89,6 +93,9 @@ export function NewDownloadBar({
   const [limit, setLimit] = useState("");
   const [probing, setProbing] = useState(false);
   const [batch, setBatch] = useState<string[] | null>(null);
+  const [advanced, setAdvanced] = useState(false);
+  const [hash, setHash] = useState("");
+  const [proxy, setProxy] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -172,9 +179,20 @@ export function NewDownloadBar({
         if (typeof r !== "string") return; // user cancelled
         chosen = r;
       }
-      onStart(clean, chosen, limitBytes(), opts?.referrer ?? null, opts?.cookies ?? null);
+      onStart(
+        clean,
+        chosen,
+        limitBytes(),
+        opts?.referrer ?? null,
+        opts?.cookies ?? null,
+        hash.trim() || null,
+        proxy.trim() || null,
+      );
       setUrl("");
       setLimit("");
+      setHash("");
+      setProxy("");
+      setAdvanced(false);
       onHitHandled();
     } catch (e) {
       notify(t("startFailed", { err: String(e) }), "error");
@@ -382,17 +400,58 @@ export function NewDownloadBar({
           />
           <span className="limit-unit">MB/s</span>
           {!batch && (
-            <button className="btn btn-primary" type="submit" disabled={probing}>
-              {probing ? (
-                <span className="spinner spinner-sm" />
-              ) : (
-                <ArrowDownIcon width={15} height={15} />
-              )}
-              {probing ? t("checking") : t("download")}
-            </button>
+            <>
+              <button
+                type="button"
+                className={`icon-btn${advanced ? " icon-btn-on" : ""}`}
+                onClick={() => setAdvanced((v) => !v)}
+                title={t("advanced")}
+                aria-label={t("advanced")}
+              >
+                <SettingsIcon width={16} height={16} />
+              </button>
+              <button className="btn btn-primary" type="submit" disabled={probing}>
+                {probing ? (
+                  <span className="spinner spinner-sm" />
+                ) : (
+                  <ArrowDownIcon width={15} height={15} />
+                )}
+                {probing ? t("checking") : t("download")}
+              </button>
+            </>
           )}
         </div>
+        {advanced && !batch && (
+          <div className="advanced-row">
+            <input
+              className="url-input"
+              value={hash}
+              onChange={(e) => setHash(e.target.value)}
+              placeholder={t("hash")}
+              spellCheck={false}
+              aria-label={t("hash")}
+            />
+            <input
+              className="url-input"
+              value={proxy}
+              onChange={(e) => setProxy(e.target.value)}
+              placeholder={t("proxyUrlDesc")}
+              spellCheck={false}
+              aria-label={t("proxy")}
+            />
+          </div>
+        )}
         <div className="download-bar-sub">
+          <button
+            type="button"
+            className="folder-chip"
+            onClick={() => void onOpenBatch()}
+            title={t("batchImport")}
+            aria-label={t("batchImport")}
+          >
+            <InboxIcon width={14} height={14} />
+            <span className="folder-change">{t("batchImport")}</span>
+          </button>
           <button
             type="button"
             className="folder-chip"

@@ -17,6 +17,18 @@ const DEFAULTS: AppSettings = {
   closeToTray: true,
   chromeExtIds: [],
   userAgent: "",
+  proxyMode: "system",
+  proxyUrl: "",
+  autoCategorize: false,
+  categoryRules: [
+    { pattern: "mp4,mkv,avi,mov,webm,flv", folder: "Videos" },
+    { pattern: "mp3,wav,flac,ogg,m4a,aac", folder: "Music" },
+    { pattern: "jpg,jpeg,png,gif,webp,svg,bmp,heic", folder: "Images" },
+    { pattern: "zip,rar,7z,tar,gz,bz2,xz", folder: "Archives" },
+    { pattern: "pdf,doc,docx,xls,xlsx,ppt,pptx,txt,epub,mobi", folder: "Documents" },
+    { pattern: "exe,msi,dmg,appimage,apk", folder: "Apps" },
+    { pattern: "iso,img", folder: "Disk Images" },
+  ],
 };
 
 export function useSettings() {

@@ -1,7 +1,8 @@
-use crate::models::{status, AppSettings, DownloadInfo, SegmentInfo, UrlMeta};
+use crate::models::{status, AppSettings, CategoryRule, DownloadInfo, SegmentInfo, UrlMeta};
 use futures_util::StreamExt;
 use percent_encoding::percent_decode_str;
-use reqwest::{header, Client, StatusCode};
+use reqwest::{header, Client, Proxy, StatusCode};
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -60,6 +61,8 @@ pub struct DownloadEntry {
     /// live per-segment counters (segmented downloads)
     pub seg_recv: Vec<Arc<AtomicU64>>,
     pub speed_state: Mutex<SpeedState>,
+    /// Optional per-download proxy client, built lazily from `info.proxy`.
+    pub client_override: Mutex<Option<Client>>,
 }
 
 pub enum AttemptOutcome {
@@ -91,21 +94,43 @@ pub struct DownloadManager {
     dirty: AtomicU8, // 0 = clean, 1 = dirty
 }
 
-/// Build the shared HTTP client, honoring the configured User-Agent. An empty
-/// UA falls back to the built-in `drift/<version>` agent (some servers block
-/// unknown agents, so users can override it in Settings → Network).
-fn build_client(user_agent: &str) -> Client {
+/// Build the shared HTTP client, honoring the configured User-Agent and proxy.
+/// An empty UA falls back to the built-in `drift/<version>` agent (some servers
+/// block unknown agents, so users can override it in Settings → Network).
+/// `proxy_mode` is "system" (OS/env proxy), "none" (disable), or "custom"
+/// (use `proxy_url`). Returns Err when the proxy URL can't be parsed.
+fn build_client(user_agent: &str, proxy_mode: &str, proxy_url: &str) -> Result<Client, String> {
     let ua = if user_agent.trim().is_empty() {
         format!("drift/{}", env!("CARGO_PKG_VERSION"))
     } else {
         user_agent.trim().to_string()
     };
-    Client::builder()
+    let mut builder = Client::builder()
         .user_agent(ua)
         .connect_timeout(Duration::from_secs(20))
-        .redirect(reqwest::redirect::Policy::limited(10))
+        .redirect(reqwest::redirect::Policy::limited(10));
+    match proxy_mode {
+        "none" => {
+            builder = builder.no_proxy();
+        }
+        "custom" if !proxy_url.trim().is_empty() => {
+            let p = Proxy::all(proxy_url.trim()).map_err(|e| format!("Invalid proxy URL: {e}"))?;
+            builder = builder.proxy(p);
+        }
+        _ => {}
+    }
+    builder
         .build()
-        .unwrap_or_default()
+        .map_err(|e| format!("HTTP client error: {e}"))
+}
+
+/// Like `build_client` but never fails: on error it logs and returns a plain
+/// client so the app can keep running.
+pub(crate) fn make_client(user_agent: &str, proxy_mode: &str, proxy_url: &str) -> Client {
+    build_client(user_agent, proxy_mode, proxy_url).unwrap_or_else(|e| {
+        eprintln!("drift: {e} — falling back to a default client");
+        Client::new()
+    })
 }
 
 impl DownloadManager {
@@ -113,7 +138,11 @@ impl DownloadManager {
         let sem = Arc::new(tokio::sync::Semaphore::new(settings.max_concurrent.max(1)));
         Self {
             app,
-            client: Mutex::new(build_client(&settings.user_agent)),
+            client: Mutex::new(make_client(
+                &settings.user_agent,
+                &settings.proxy_mode,
+                &settings.proxy_url,
+            )),
             entries: Mutex::new(HashMap::new()),
             semaphore: Arc::new(Mutex::new(sem)),
             settings: Mutex::new(settings),
@@ -123,9 +152,26 @@ impl DownloadManager {
     }
 
     /// Clone of the shared HTTP client (cloning a reqwest client is cheap —
-    /// the connection pool is shared). Rebuilt when the User-Agent changes.
+    /// the connection pool is shared). Rebuilt when the User-Agent or proxy
+    /// settings change.
     pub fn client(&self) -> Client {
         self.client.lock().unwrap().clone()
+    }
+
+    /// The HTTP client for a specific download: a per-download proxy override
+    /// if one was set, otherwise the shared client.
+    pub fn client_for(&self, entry: &DownloadEntry) -> Client {
+        let mut cached = entry.client_override.lock().unwrap();
+        if let Some(c) = cached.as_ref() {
+            return c.clone();
+        }
+        let proxy = entry.info.lock().unwrap().proxy.clone();
+        let client = match proxy.filter(|p| !p.trim().is_empty()) {
+            Some(p) => make_client(&self.settings.lock().unwrap().user_agent, "custom", &p),
+            None => self.client(),
+        };
+        *cached = Some(client.clone());
+        client
     }
 
     // ---------------------------------------------------------------- state
@@ -181,6 +227,7 @@ impl DownloadManager {
             action: AtomicU8::new(0),
             seg_recv: (0..n).map(|_| Arc::new(AtomicU64::new(0))).collect(),
             speed_state: Mutex::new(SpeedState::at(0)),
+            client_override: Mutex::new(None),
         });
         let id = entry.info.lock().unwrap().id.clone();
         self.entries.lock().unwrap().insert(id, entry);
@@ -264,22 +311,47 @@ impl DownloadManager {
         segmented: Option<bool>,
         referrer: Option<String>,
         cookies: Option<String>,
+        hash: Option<String>,
+        proxy: Option<String>,
     ) -> Result<DownloadInfo, String> {
         let url = url.trim().to_string();
         if !url.starts_with("http://") && !url.starts_with("https://") {
             return Err("URL must start with http:// or https://".into());
         }
-        let dir = Path::new(&path)
+        let base_dir = Path::new(&path)
             .parent()
             .map(|p| p.to_path_buf())
             .unwrap_or_default();
-        fs::create_dir_all(&dir).map_err(|e| format!("Cannot create folder: {e}"))?;
-        let filename = Path::new(&path)
+        fs::create_dir_all(&base_dir).map_err(|e| format!("Cannot create folder: {e}"))?;
+        let raw_name = Path::new(&path)
             .file_name()
             .and_then(|s| s.to_str())
             .map(sanitize_filename)
             .unwrap_or_else(|| "download".into());
 
+        // Per-download proxy override (built now so the probe also uses it).
+        let proxy = proxy.filter(|p| !p.trim().is_empty());
+        let probe_client = match &proxy {
+            Some(p) => make_client(&self.settings.lock().unwrap().user_agent, "custom", p),
+            None => self.client(),
+        };
+        let meta = probe_url(&probe_client, &url, referrer.as_deref(), cookies.as_deref()).await?;
+
+        // Auto-categorize: route into a per-type subfolder when enabled and a
+        // rule matches the extension or MIME type.
+        let settings = self.settings.lock().unwrap().clone();
+        let mut dir = base_dir.clone();
+        let filename = raw_name.clone();
+        if settings.auto_categorize {
+            if let Some(sub) = categorize(
+                &settings.category_rules,
+                &filename,
+                meta.content_type.as_deref(),
+            ) {
+                dir = base_dir.join(sub);
+                let _ = fs::create_dir_all(&dir);
+            }
+        }
         // If a download is already in progress for this name, pick a unique one
         // so an active .part file is never clobbered.
         let final_path = if part_exists(&dir, &filename) {
@@ -292,14 +364,6 @@ impl DownloadManager {
             .and_then(|s| s.to_str())
             .unwrap_or("download")
             .to_string();
-
-        let meta = probe_url(
-            &self.client(),
-            &url,
-            referrer.as_deref(),
-            cookies.as_deref(),
-        )
-        .await?;
 
         // Fail fast (with a clear message) when the disk can't hold the file.
         if let Some(size) = meta.size {
@@ -314,7 +378,6 @@ impl DownloadManager {
             }
         }
 
-        let settings = self.settings.lock().unwrap().clone();
         let want_segmented = segmented.unwrap_or(settings.segmented)
             && meta.supports_ranges
             && meta.size.unwrap_or(0) >= SEGMENT_MIN_SIZE;
@@ -372,6 +435,9 @@ impl DownloadManager {
             supports_ranges: meta.supports_ranges,
             retries: 0,
             speed_limit: limit,
+            hash: hash.filter(|h| !h.trim().is_empty()),
+            verified: false,
+            proxy: proxy.clone(),
             completed_at: None,
             priority,
         };
@@ -380,6 +446,7 @@ impl DownloadManager {
             action: AtomicU8::new(0),
             seg_recv: (0..nseg).map(|_| Arc::new(AtomicU64::new(0))).collect(),
             speed_state: Mutex::new(SpeedState::at(0)),
+            client_override: Mutex::new(None),
         });
         let id = entry.info.lock().unwrap().id.clone();
         self.entries.lock().unwrap().insert(id, entry.clone());
@@ -570,8 +637,15 @@ impl DownloadManager {
             *self.semaphore.lock().unwrap() =
                 Arc::new(tokio::sync::Semaphore::new(settings.max_concurrent.max(1)));
         }
-        if cur.user_agent != settings.user_agent {
-            *self.client.lock().unwrap() = build_client(&settings.user_agent);
+        if cur.user_agent != settings.user_agent
+            || cur.proxy_mode != settings.proxy_mode
+            || cur.proxy_url != settings.proxy_url
+        {
+            *self.client.lock().unwrap() = make_client(
+                &settings.user_agent,
+                &settings.proxy_mode,
+                &settings.proxy_url,
+            );
         }
         *cur = settings;
     }
@@ -783,7 +857,8 @@ impl DownloadManager {
             }
         }
 
-        let mut req = self.client().get(&url);
+        let client = self.client_for(&entry);
+        let mut req = client.get(&url);
         if let Some(r) = referrer.as_deref() {
             req = req.header(header::REFERER, r);
         }
@@ -859,57 +934,57 @@ impl DownloadManager {
             // file, so there is nothing left to download.
             let _ = file.flush().await;
         } else {
-        let mut stream = resp.bytes_stream();
-        let mut chunk_bytes = 0u64;
-        let mut limit_instant = Instant::now();
-        let mut cur_limit = 0u64; // 0 = unlimited; throttle window restarts on change
-        let mut last_emit = Instant::now();
-        while let Some(chunk) = stream.next().await {
-            if entry.action.load(Ordering::SeqCst) != 0 {
-                break;
-            }
-            let chunk = match chunk {
-                Ok(c) => c,
-                Err(e) => return AttemptOutcome::Failed(e.to_string()),
-            };
-            let len = chunk.len() as u64;
-            if let Err(e) = file.write_all(&chunk).await {
-                return AttemptOutcome::Failed(format!("Write error: {e}"));
-            }
-            received += len;
-            chunk_bytes += len;
-            // One lock per chunk: persist received bytes and read the live limit
-            // together (the limit read no longer takes a second lock). Holding
-            // the info lock while computing effective_limit only locks `settings`
-            // afterwards, which never nests settings->info, so there's no
-            // deadlock risk.
-            let eff_limit = {
-                let mut info = entry.info.lock().unwrap();
-                info.received = received;
-                self.effective_limit(info.speed_limit)
-            };
-            if eff_limit != cur_limit {
-                cur_limit = eff_limit;
-                chunk_bytes = 0;
-                limit_instant = Instant::now();
-            }
-            if cur_limit > 0 {
-                let elapsed = limit_instant.elapsed();
-                let target = Duration::from_secs_f64(chunk_bytes as f64 / cur_limit as f64);
-                if target > elapsed {
-                    tokio::time::sleep(target - elapsed).await;
-                }
+            let mut stream = resp.bytes_stream();
+            let mut chunk_bytes = 0u64;
+            let mut limit_instant = Instant::now();
+            let mut cur_limit = 0u64; // 0 = unlimited; throttle window restarts on change
+            let mut last_emit = Instant::now();
+            while let Some(chunk) = stream.next().await {
                 if entry.action.load(Ordering::SeqCst) != 0 {
                     break;
                 }
+                let chunk = match chunk {
+                    Ok(c) => c,
+                    Err(e) => return AttemptOutcome::Failed(e.to_string()),
+                };
+                let len = chunk.len() as u64;
+                if let Err(e) = file.write_all(&chunk).await {
+                    return AttemptOutcome::Failed(format!("Write error: {e}"));
+                }
+                received += len;
+                chunk_bytes += len;
+                // One lock per chunk: persist received bytes and read the live limit
+                // together (the limit read no longer takes a second lock). Holding
+                // the info lock while computing effective_limit only locks `settings`
+                // afterwards, which never nests settings->info, so there's no
+                // deadlock risk.
+                let eff_limit = {
+                    let mut info = entry.info.lock().unwrap();
+                    info.received = received;
+                    self.effective_limit(info.speed_limit)
+                };
+                if eff_limit != cur_limit {
+                    cur_limit = eff_limit;
+                    chunk_bytes = 0;
+                    limit_instant = Instant::now();
+                }
+                if cur_limit > 0 {
+                    let elapsed = limit_instant.elapsed();
+                    let target = Duration::from_secs_f64(chunk_bytes as f64 / cur_limit as f64);
+                    if target > elapsed {
+                        tokio::time::sleep(target - elapsed).await;
+                    }
+                    if entry.action.load(Ordering::SeqCst) != 0 {
+                        break;
+                    }
+                }
+                if last_emit.elapsed() >= Duration::from_millis(150) {
+                    self.update_speed(&entry, received);
+                    self.emit_progress(&entry);
+                    last_emit = Instant::now();
+                }
             }
-            if last_emit.elapsed() >= Duration::from_millis(150) {
-                self.update_speed(&entry, received);
-                self.emit_progress(&entry);
-                last_emit = Instant::now();
-            }
-        }
-        let _ = file.flush().await;
+            let _ = file.flush().await;
         }
 
         let action = entry.action.swap(0, Ordering::SeqCst);
@@ -931,6 +1006,9 @@ impl DownloadManager {
         }
         if let Err(e) = rename_with_retry(&part, &final_path).await {
             return AttemptOutcome::Failed(format!("Finalize error: {e}"));
+        }
+        if let Err(e) = verify_hash(&entry, &final_path) {
+            return AttemptOutcome::Failed(e);
         }
         {
             let mut info = entry.info.lock().unwrap();
@@ -1006,11 +1084,12 @@ impl DownloadManager {
 
         let seg_count = segments.len();
         let mut handles = Vec::new();
+        let client = self.client_for(&entry);
         for seg in &segments {
             let entry = entry.clone();
             let url = url.clone();
             let referrer = referrer.clone();
-            let client = self.client();
+            let client = client.clone();
             let seg = seg.clone();
             handles.push(tauri::async_runtime::spawn(async move {
                 download_segment(
@@ -1113,6 +1192,9 @@ impl DownloadManager {
         }
         for i in 0..seg_count {
             let _ = fs::remove_file(part_path(&final_path, i));
+        }
+        if let Err(e) = verify_hash(&entry, &final_path) {
+            return AttemptOutcome::Failed(e);
         }
         {
             let mut info = entry.info.lock().unwrap();
@@ -1649,6 +1731,96 @@ fn per_seg_limit(entry_limit: u64, global_limit: u64, active: usize, seg_count: 
         (eff / seg_count.max(1) as u64).max(1)
     } else {
         0
+    }
+}
+
+/// Pick a subfolder for `filename` given the category rules. Returns None when
+/// no rule matches. A pattern is a comma-separated list of extensions (e.g.
+/// "mp4,mkv") or a MIME fragment (e.g. "video/"); `*` matches everything.
+fn categorize(
+    rules: &[CategoryRule],
+    filename: &str,
+    content_type: Option<&str>,
+) -> Option<String> {
+    let ext = Path::new(filename)
+        .extension()
+        .and_then(|s| s.to_str())
+        .map(|s| s.to_lowercase());
+    let ct = content_type.map(|s| s.to_lowercase());
+    for rule in rules {
+        let folder = rule.folder.trim();
+        if folder.is_empty() {
+            continue;
+        }
+        for token in rule.pattern.split(',') {
+            let token = token.trim().to_lowercase();
+            if token.is_empty() {
+                continue;
+            }
+            if token == "*" {
+                return Some(folder.to_string());
+            } else if token.contains('/') {
+                if let Some(ct) = &ct {
+                    if ct.contains(&token) {
+                        return Some(folder.to_string());
+                    }
+                }
+            } else {
+                let e = token.trim_start_matches('.');
+                if let Some(ext) = &ext {
+                    if ext == e {
+                        return Some(folder.to_string());
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+/// SHA-256 of a file, read in chunks so large downloads don't load into memory.
+fn sha256_of(path: &Path) -> Result<Vec<u8>, String> {
+    use std::io::Read;
+    let mut f =
+        fs::File::open(path).map_err(|e| format!("Cannot read file for verification: {e}"))?;
+    let mut hasher = Sha256::new();
+    let mut buf = [0u8; 64 * 1024];
+    loop {
+        let n = f
+            .read(&mut buf)
+            .map_err(|e| format!("Hash read error: {e}"))?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    Ok(hasher.finalize().to_vec())
+}
+
+/// Verify the completed file against `info.hash` (SHA-256, hex). When no hash
+/// is set the download is considered verified. A mismatch fails the download.
+fn verify_hash(entry: &DownloadEntry, final_path: &Path) -> Result<(), String> {
+    let expected = entry.info.lock().unwrap().hash.clone();
+    let Some(expected) = expected.filter(|h| !h.trim().is_empty()) else {
+        let mut info = entry.info.lock().unwrap();
+        info.verified = true;
+        return Ok(());
+    };
+    let actual = sha256_of(final_path)?;
+    let actual_hex = actual
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect::<String>();
+    let mut info = entry.info.lock().unwrap();
+    if actual_hex.eq_ignore_ascii_case(expected.trim()) {
+        info.verified = true;
+        Ok(())
+    } else {
+        Err(format!(
+            "Checksum mismatch: expected {}, got {}",
+            expected.trim(),
+            actual_hex
+        ))
     }
 }
 

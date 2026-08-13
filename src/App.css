@@ -17,11 +17,11 @@
   font-display: swap;
 }
 
-/* Persian UI uses a single face — IranYekan Black — for every weight, so the
+/* Persian UI uses a single face — IranYekan Medium — for every weight, so the
    whole RTL interface renders in it regardless of the requested font-weight. */
 @font-face {
   font-family: "IranYekan";
-  src: url("/fonts/Qs_Iranyekan%20black.ttf") format("truetype");
+  src: url("/fonts/Qs_Iranyekan%20medium.ttf") format("truetype");
   font-weight: 100 1000;
   font-style: normal;
   font-display: swap;
@@ -2884,6 +2884,100 @@ input {
   .search-input {
     width: 140px;
   }
+}
+
+/* ============================================================
+   drift — new feature UI (proxy, categories, batch, checksum)
+   ============================================================ */
+
+.icon-btn-on {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: var(--border-strong);
+}
+
+.chip-ok {
+  color: var(--ok);
+  background: var(--ok-soft);
+  border-color: transparent;
+}
+
+.advanced-row {
+  display: flex;
+  gap: 8px;
+  padding: 0 2px 4px;
+}
+
+.advanced-row .url-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.rules-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.rule-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.rule-pattern {
+  flex: 2;
+  min-width: 0;
+}
+
+.rule-folder {
+  flex: 1;
+  min-width: 0;
+}
+
+.rule-row .icon-btn {
+  flex: 0 0 auto;
+}
+
+.batch-textarea {
+  width: 100%;
+  min-height: 200px;
+  resize: vertical;
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  outline: none;
+}
+
+.batch-textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.batch-help {
+  margin: 0 0 10px;
+  color: var(--text-2);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.modal-narrow {
+  width: min(560px, 92vw);
+}
+
+.batch-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
 }
 
 

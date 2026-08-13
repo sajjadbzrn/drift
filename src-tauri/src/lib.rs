@@ -18,8 +18,17 @@ async fn probe_url(
     url: String,
     referrer: Option<String>,
     cookies: Option<String>,
+    proxy: Option<String>,
 ) -> Result<UrlMeta, String> {
-    download::probe_url(&state.client(), &url, referrer.as_deref(), cookies.as_deref()).await
+    let client = match proxy.filter(|p| !p.trim().is_empty()) {
+        Some(p) => download::make_client(
+            &state.settings.lock().unwrap().user_agent,
+            "custom",
+            &p,
+        ),
+        None => state.client(),
+    };
+    download::probe_url(&client, &url, referrer.as_deref(), cookies.as_deref()).await
 }
 
 #[tauri::command]
@@ -31,10 +40,12 @@ async fn start_download(
     segmented: Option<bool>,
     referrer: Option<String>,
     cookies: Option<String>,
+    hash: Option<String>,
+    proxy: Option<String>,
 ) -> Result<DownloadInfo, String> {
     state
         .inner()
-        .start_download(url, path, speed_limit, segmented, referrer, cookies)
+        .start_download(url, path, speed_limit, segmented, referrer, cookies, hash, proxy)
         .await
 }
 
