@@ -177,21 +177,21 @@ Users update drift from inside the app — no uninstall/reinstall required.
 ### Every release
 
 ```bash
-bun scripts/bump-version.mjs 0.2.4   # bumps package.json, tauri.conf.json, Cargo.toml
-git add -A && git commit -m "Release v0.2.4"
-git tag v0.2.4 && git push && git push --tags
+bun scripts/bump-version.mjs 0.4.0   # bumps package.json, tauri.conf.json, Cargo.toml
+git add -A && git commit -m "Release v0.4.0"
+git tag v0.4.0 && git push && git push --tags
 ```
 
 The workflow (`.github/workflows/release.yml`) builds the native messaging host,
 the NSIS installer, signs it, generates `latest.json`, and uploads everything.
-Users see _"Update v0.2.4 is available"_ and update in place.
+Users see _"Update v0.4.0 is available"_ and update in place.
 
 ### Manual release (no GitHub Actions)
 
 ```bash
 bun scripts/build-host.mjs                          # build drift-host for the bundle
 bun run tauri build --bundles nsis                  # needs TAURI_SIGNING_PRIVATE_KEY
-bun scripts/make-update-json.mjs --version 0.2.4 --owner <owner> --repo <repo>
+bun scripts/make-update-json.mjs --version 0.4.0 --owner <owner> --repo <repo>
 ```
 
 Then upload `*-setup.exe`, `*.exe.sig` and `latest.json` to a GitHub Release (or
