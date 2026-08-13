@@ -105,6 +105,7 @@ export function SettingsModal({
   const [hostStatus, setHostStatus] = useState<NativeHostStatus | null>(null);
   const [extIdsText, setExtIdsText] = useState("");
   const [uaText, setUaText] = useState("");
+  const [proxyUrlText, setProxyUrlText] = useState("");
 
   useEffect(() => {
     if (!open) return;
@@ -115,6 +116,7 @@ export function SettingsModal({
       });
     setExtIdsText(settings.chromeExtIds.join(", "));
     setUaText(settings.userAgent);
+    setProxyUrlText(settings.proxyUrl);
     api
       .getNativeHostStatus()
       .then(setHostStatus)
@@ -278,7 +280,9 @@ export function SettingsModal({
               {up.phase === "error" && (
                 <div className="update-error">
                   <span className="update-status update-error-text">
-                    {t("updateFailed", { err: up.message })}
+                    {up.network
+                      ? t("updateNoInternet")
+                      : t("updateFailed", { err: up.message })}
                   </span>
                   <button className="btn-ghost btn-sm" onClick={onCheckUpdates}>
                     {t("checkForUpdates")}
@@ -350,6 +354,124 @@ export function SettingsModal({
               </button>
               <button className="btn btn-primary btn-sm" onClick={() => update({ userAgent: uaText.trim() })}>
                 {t("save")}
+              </button>
+            </div>
+
+            <div className="setting-row">
+              <span className="setting-text">
+                <span className="setting-label">{t("proxy")}</span>
+                <span className="setting-desc">{t("proxyDesc")}</span>
+              </span>
+              <div className="segmented segmented-inline">
+                {(["system", "none", "custom"] as const).map((m) => (
+                  <button
+                    key={m}
+                    className={`seg-btn${settings.proxyMode === m ? " seg-btn-on" : ""}`}
+                    onClick={() => update({ proxyMode: m })}
+                  >
+                    {m === "system"
+                      ? t("proxySystem")
+                      : m === "none"
+                        ? t("proxyNone")
+                        : t("proxyCustom")}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {settings.proxyMode === "custom" && (
+              <div className="ext-ids-row">
+                <input
+                  className="ext-ids-input"
+                  value={proxyUrlText}
+                  onChange={(e) => setProxyUrlText(e.target.value)}
+                  placeholder={t("proxyUrlDesc")}
+                  spellCheck={false}
+                  aria-label={t("proxyUrl")}
+                />
+                <button
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => update({ proxyUrl: "" })}
+                  disabled={!settings.proxyUrl}
+                  title={t("uaReset")}
+                >
+                  {t("uaReset")}
+                </button>
+                <button
+                  className="btn btn-primary btn-sm"
+                  onClick={() => update({ proxyUrl: proxyUrlText.trim() })}
+                >
+                  {t("save")}
+                </button>
+              </div>
+            )}
+          </section>
+
+          <section>
+            <span className="section-label">{t("categoryRules")}</span>
+            <Toggle
+              checked={settings.autoCategorize}
+              onChange={(v) => update({ autoCategorize: v })}
+              label={t("autoCategorize")}
+              desc={t("autoCategorizeDesc")}
+            />
+            <div className="setting-row">
+              <span className="setting-text">
+                <span className="setting-label">{t("categoryRules")}</span>
+                <span className="setting-desc">{t("categoryRulesDesc")}</span>
+              </span>
+            </div>
+            <div className="rules-editor">
+              {settings.categoryRules.map((rule, i) => (
+                <div className="rule-row" key={i}>
+                  <input
+                    className="rule-pattern"
+                    value={rule.pattern}
+                    onChange={(e) => {
+                      const next = settings.categoryRules.slice();
+                      next[i] = { ...rule, pattern: e.target.value };
+                      update({ categoryRules: next });
+                    }}
+                    placeholder={t("rulePattern")}
+                    spellCheck={false}
+                    aria-label={t("rulePattern")}
+                  />
+                  <input
+                    className="rule-folder"
+                    value={rule.folder}
+                    onChange={(e) => {
+                      const next = settings.categoryRules.slice();
+                      next[i] = { ...rule, folder: e.target.value };
+                      update({ categoryRules: next });
+                    }}
+                    placeholder={t("ruleFolder")}
+                    spellCheck={false}
+                    aria-label={t("ruleFolder")}
+                  />
+                  <button
+                    className="icon-btn"
+                    title={t("remove")}
+                    aria-label={t("remove")}
+                    onClick={() => {
+                      const next = settings.categoryRules.filter((_, j) => j !== i);
+                      update({ categoryRules: next });
+                    }}
+                  >
+                    <XIcon width={14} height={14} />
+                  </button>
+                </div>
+              ))}
+              <button
+                className="btn btn-ghost btn-sm"
+                onClick={() =>
+                  update({
+                    categoryRules: [
+                      ...settings.categoryRules,
+                      { pattern: "", folder: "" },
+                    ],
+                  })
+                }
+              >
+                {t("addRule")}
               </button>
             </div>
           </section>

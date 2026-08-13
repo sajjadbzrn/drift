@@ -15,7 +15,29 @@ export type UpdaterPhase =
   | { phase: "available"; info: UpdateInfo }
   | { phase: "downloading"; received: number; total: number | null }
   | { phase: "installing" }
-  | { phase: "error"; message: string };
+  | { phase: "error"; message: string; network: boolean };
+
+/** Heuristic: does this error look like a lost internet connection? */
+function isNetworkError(e: unknown): boolean {
+  const s = String(e).toLowerCase();
+  return (
+    s.includes("network") ||
+    s.includes("offline") ||
+    s.includes("timeout") ||
+    s.includes("timed out") ||
+    s.includes("econn") ||
+    s.includes("enotfound") ||
+    s.includes("getaddrinfo") ||
+    s.includes("dns") ||
+    s.includes("no route") ||
+    s.includes("host unreachable") ||
+    s.includes("failed to connect") ||
+    s.includes("connection reset") ||
+    s.includes("fetch failed") ||
+    s.includes("unreachable") ||
+    s.includes("no internet")
+  );
+}
 
 export interface Updater {
   state: UpdaterPhase;
@@ -44,7 +66,7 @@ export function useUpdater(): Updater {
       return info;
     } catch (e) {
       updateRef.current = null;
-      setState({ phase: "error", message: String(e) });
+      setState({ phase: "error", message: String(e), network: isNetworkError(e) });
       return null;
     }
   }, []);
@@ -60,7 +82,7 @@ export function useUpdater(): Updater {
       setState({ phase: "installing" });
       await relaunchApp();
     } catch (e) {
-      setState({ phase: "error", message: String(e) });
+      setState({ phase: "error", message: String(e), network: isNetworkError(e) });
     }
   }, []);
 

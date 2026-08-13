@@ -74,6 +74,7 @@ const DICT: Record<Lang, Record<string, Tpl>> = {
     cappedAt: "Capped at {v}/s",
     autoSaving: "Auto-saving to folder",
     noLimit: "No speed limit",
+    advanced: "Advanced",
 
     // download card
     badgeQueued: "Queued",
@@ -230,6 +231,8 @@ const DICT: Record<Lang, Record<string, Tpl>> = {
     relaunching: "Relaunching…",
     updateCheckFailed: "Could not check for updates: {err}",
     updateFailed: "Update failed: {err}",
+    updateNoInternet:
+      "No internet connection — check your connection and try again.",
     releaseNotes: "Release notes",
     updateToast: (p) => `Update v${p.version} is available`,
 
@@ -252,6 +255,38 @@ const DICT: Record<Lang, Record<string, Tpl>> = {
       "Sent with download requests. Some sites block drift's default agent; leave empty for the default.",
     userAgentPlaceholder: "Leave empty for the default",
     uaReset: "Reset",
+
+    // proxy & categories
+    proxy: "Proxy",
+    proxyDesc: "Route downloads through a proxy. Useful on restricted networks.",
+    proxySystem: "System",
+    proxyNone: "Off",
+    proxyCustom: "Custom",
+    proxyUrl: "Proxy URL",
+    proxyUrlDesc: "e.g. http://127.0.0.1:8080 or socks5://127.0.0.1:1080",
+    autoCategorize: "Auto-categorize",
+    autoCategorizeDesc: "Sort downloads into subfolders by file type.",
+    categoryRules: "Category rules",
+    categoryRulesDesc:
+      "Extensions or MIME fragments (comma-separated) mapped to a subfolder.",
+    rulePattern: "Matches",
+    ruleFolder: "Folder",
+    addRule: "Add rule",
+    hash: "Checksum (SHA-256)",
+    hashDesc:
+      "Optional expected SHA-256; the finished file is verified against it.",
+    verified: "Verified",
+    checksumMismatch: "Checksum mismatch",
+
+    // batch import
+    batchImport: "Batch import",
+    batchHelp: "Paste one download link per line. Files are saved straight into the chosen folder.",
+    batchPlaceholder: "https://example.com/file1.zip\nhttps://example.com/file2.zip",
+    batchEmptyHint: "No links yet",
+    batchDone: (p) => `Imported ${p.n} download${Number(p.n) === 1 ? "" : "s"}`,
+    batchPartial: (p) => `Imported ${p.ok} of ${p.total}`,
+    importing: (p) => `Importing… ${p.n}/${p.total}`,
+    importAll: (p) => `Import all (${p.n})`,
 
     // toasts
     dismiss: "Dismiss",
@@ -321,6 +356,7 @@ const DICT: Record<Lang, Record<string, Tpl>> = {
     cappedAt: "محدود به {v} بر ثانیه",
     autoSaving: "ذخیره خودکار در پوشه",
     noLimit: "بدون محدودیت سرعت",
+    advanced: "پیشرفته",
 
     // download card
     badgeQueued: "در صف",
@@ -472,6 +508,8 @@ const DICT: Record<Lang, Record<string, Tpl>> = {
     relaunching: "در حال راه‌اندازی مجدد…",
     updateCheckFailed: "بررسی به‌روزرسانی ممکن نشد: {err}",
     updateFailed: "به‌روزرسانی ناموفق بود: {err}",
+    updateNoInternet:
+      "دسترسی به اینترنت وجود ندارد — اتصال خود را بررسی و دوباره تلاش کنید.",
     releaseNotes: "یادداشت‌های نسخه",
     updateToast: (p) => `نسخه ${p.version} در دسترس است`,
 
@@ -494,6 +532,36 @@ const DICT: Record<Lang, Record<string, Tpl>> = {
       "همراه درخواست‌های دانلود ارسال می‌شود. برخی سایت‌ها عامل پیش‌فرض دریفت را مسدود می‌کنند؛ خالی = پیش‌فرض.",
     userAgentPlaceholder: "برای پیش‌فرض خالی بگذارید",
     uaReset: "بازنشانی",
+
+    // proxy & categories
+    proxy: "پروکسی",
+    proxyDesc: "مسیریابی دانلودها از طریق پروکسی. برای شبکه‌های محدود مفید است.",
+    proxySystem: "سیستم",
+    proxyNone: "خاموش",
+    proxyCustom: "سفارشی",
+    proxyUrl: "نشانی پروکسی",
+    proxyUrlDesc: "مثال: http://127.0.0.1:8080 یا socks5://127.0.0.1:1080",
+    autoCategorize: "دسته‌بندی خودکار",
+    autoCategorizeDesc: "دانلودها بر اساس نوع فایل در زیرپوشه مرتب شوند.",
+    categoryRules: "قوانین دسته‌بندی",
+    categoryRulesDesc: "پسوندها یا نوع‌های MIME (با کاما جدا) نگاشت‌شده به یک زیرپوشه.",
+    rulePattern: "تطبیق",
+    ruleFolder: "پوشه",
+    addRule: "افزودن قانون",
+    hash: "چک‌سام (SHA-256)",
+    hashDesc: "SHA-256 مورد انتظار اختیاری؛ فایل پس از دانلود تأیید می‌شود.",
+    verified: "تأیید شد",
+    checksumMismatch: "عدم تطابق چک‌سام",
+
+    // batch import
+    batchImport: "واردات دسته‌ای",
+    batchHelp: "هر خط یک لینک دانلود. فایل‌ها مستقیماً در پوشه انتخابی ذخیره می‌شوند.",
+    batchPlaceholder: "https://example.com/file1.zip\nhttps://example.com/file2.zip",
+    batchEmptyHint: "هنوز لینکی نیست",
+    batchDone: (p) => `${p.n} دانلود وارد شد`,
+    batchPartial: (p) => `${p.ok} از ${p.total} وارد شد`,
+    importing: (p) => `در حال وارد کردن… ${p.n}/${p.total}`,
+    importAll: (p) => `وارد کردن همه (${p.n})`,
 
     // toasts
     dismiss: "بستن",

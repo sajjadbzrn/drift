@@ -14,7 +14,7 @@
       {
         "title": "drift",
         "width": 1024,
-        "height": 700,
+        "height": 740,
         "minWidth": 900,
         "minHeight": 600,
         "center": true,
@@ -37,6 +37,7 @@
     },
     "updater": {
       "endpoints": [
+        "https://drift.ir/update/latest.json",
         "https://github.com/sajjadbzrn/drift/releases/latest/download/latest.json"
       ],
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDhEQjBDMUNGRjFDRTcyMTkKUldRWmNzN3h6OEd3amNObHlNaUJCa0hrU1ZFaEFqbjVMOVRzN0RBNmFJbno3b0g0VHViandOYWIK",

@@ -49,7 +49,7 @@ export function formatDate(ms: number): string {
   try {
     if (getActiveLang() === "fa") {
       return new Date(ms).toLocaleString("fa-IR", {
-        calendar: "gregory",
+        calendar: "persian",
         month: "short",
         day: "numeric",
         hour: "2-digit",
