@@ -217,6 +217,11 @@ const DICT: Record<Lang, Record<string, Tpl>> = {
     eula: "End User License Agreement",
     licenseLoading: "Loading license…",
     licenseError: "The license text could not be loaded.",
+    creator: "Creator",
+    creatorName: "Sajjad Bzn",
+    creatorDesc: "Developer & designer of drift",
+    creatorWebsite: "Website",
+    creatorGitHub: "GitHub",
 
     // updates
     updates: "Updates",
@@ -494,6 +499,11 @@ const DICT: Record<Lang, Record<string, Tpl>> = {
     eula: "قرارداد مجوز کاربر نهایی",
     licenseLoading: "در حال بارگذاری مجوز…",
     licenseError: "متن مجوز قابل بارگذاری نیست.",
+    creator: "سازنده",
+    creatorName: "سجاد بزن",
+    creatorDesc: "توسعه‌دهنده و طراح دریفت",
+    creatorWebsite: "وبسایت",
+    creatorGitHub: "گیت‌هاب",
 
     // updates
     updates: "به‌روزرسانی",
