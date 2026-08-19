@@ -14,7 +14,7 @@
   <img src="https://img.shields.io/badge/license-MIT-22c55e" alt="license" />
   <img src="https://img.shields.io/badge/platform-Windows-0078D4" alt="platform" />
   <img src="https://img.shields.io/badge/built%20with-Tauri%202-22c55e" alt="built with Tauri" />
-  <a href="https://drift.ir"><img src="https://img.shields.io/badge/website-drift.ir-8b5cf6" alt="website" /></a>
+  <a href="https://driftapp.ir"><img src="https://img.shields.io/badge/website-driftapp.ir-8b5cf6" alt="website" /></a>
 </p>
 
 ---
@@ -40,7 +40,7 @@
 
 Head to the [latest release](https://github.com/sajjadbzrn/drift/releases/latest) and grab the Windows installer.
 
-Or visit [drift.ir](https://drift.ir) for more info.
+Or visit [drift.ir](https://driftapp.ir) for more info.
 
 ## 🧩 Browser Extension
 
@@ -64,5 +64,5 @@ bun run tauri dev      # full app (Rust backend + web UI)
 ---
 
 <p align="center">
-  Made with care · <a href="https://drift.ir">drift.ir</a> · <a href="https://github.com/sajjadbzrn/drift">GitHub</a>
+  Made with care · <a href="https://driftapp.ir">driftapp.ir</a> · <a href="https://github.com/sajjadbzrn/drift">GitHub</a>
 </p>
