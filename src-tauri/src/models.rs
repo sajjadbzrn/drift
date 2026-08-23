@@ -190,4 +190,9 @@ pub struct UrlMeta {
     pub size: Option<u64>,
     pub supports_ranges: bool,
     pub content_type: Option<String>,
+    /// Measured live connection throughput in bytes/second, sampled during the
+    /// probe's ranged GET. `None` when the sample was too small/slow to be
+    /// meaningful (the UI then shows "—" instead of a bogus estimate).
+    #[serde(default)]
+    pub speed: Option<u64>,
 }

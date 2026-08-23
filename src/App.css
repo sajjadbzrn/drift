@@ -2130,9 +2130,12 @@ input {
 
 .toast-msg {
   flex: 1;
+  min-width: 0;
   font-size: 13px;
   font-weight: 500;
   line-height: 1.4;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .toast-close {
@@ -3040,6 +3043,74 @@ input {
 
 .modal-narrow {
   width: min(560px, 92vw);
+}
+
+/* download preview shown before a download starts */
+.dl-preview-file {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+}
+.dl-preview-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+.dl-preview-name {
+  font-weight: 600;
+  font-size: 14px;
+  letter-spacing: -0.01em;
+  word-break: break-all;
+  min-width: 0;
+}
+.dl-preview-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.dl-stat {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 11px 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.dl-stat-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+}
+.dl-stat-value {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.dl-stat-sub {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-dim);
+  word-break: break-all;
+}
+.dl-preview-note {
+  font-size: 12.5px;
+  color: var(--text-dim);
+  text-align: center;
+}
+.dl-preview-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 2px;
 }
 
 .batch-actions {

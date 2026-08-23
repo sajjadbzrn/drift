@@ -21,6 +21,12 @@ pub const MAX_SEGMENTS: usize = 8;
 /// the host being flaky, so a short retry often succeeds.
 pub const SEGMENT_416_RETRIES: u32 = 3;
 
+/// Bytes pulled when sampling the connection for speed estimation during a
+/// probe. Larger samples give a steadier readout but cost a little more
+/// bandwidth on every probe; 256 KiB is a good balance for a first-impression
+/// ETA without noticeably delaying the Start button.
+const SPEED_SAMPLE_BYTES: u64 = 256 * 1024; // 256 KiB
+
 /// Time constant (seconds) of the speed smoother. Larger = stabler readout;
 /// ~1 s smooths out bursty TCP sampling without making ETA feel sluggish.
 const SPEED_SMOOTH_TC: f64 = 1.0;
@@ -1519,42 +1525,73 @@ pub async fn probe_url(
         }
     }
 
-    // If the HEAD probe didn't reveal a size (common on many CDNs and file
-    // hosts), sniff the real response with a tiny ranged GET so the UI can
-    // show total size, remaining bytes, and ETA right away.
-    if size.is_none() {
-        let mut sniff = client.get(url).header(header::RANGE, "bytes=0-0");
-        if let Some(r) = referrer {
-            sniff = sniff.header(header::REFERER, r);
+    // Speed-sampling ranged GET. We pull a small slice of the file both to learn
+    // the true size (when HEAD omitted Content-Length) and to measure the live
+    // connection throughput so the UI can show an approximate download time
+    // before the user commits to the download.
+    let mut speed_req = client
+        .get(url)
+        .header(header::RANGE, format!("bytes=0-{}", SPEED_SAMPLE_BYTES - 1));
+    if let Some(r) = referrer {
+        speed_req = speed_req.header(header::REFERER, r);
+    }
+    if let Some(c) = cookies {
+        if !c.is_empty() {
+            speed_req = speed_req.header(header::COOKIE, c);
         }
-        if let Some(c) = cookies {
-            if !c.is_empty() {
-                sniff = sniff.header(header::COOKIE, c);
-            }
-        }
-        let resp = sniff.send().await.map_err(|e| e.to_string())?;
+    }
+    let speed_resp = speed_req.send().await;
+    let mut speed: Option<u64> = None;
+    if let Ok(resp) = speed_resp {
         let status = resp.status();
-        if status == StatusCode::PARTIAL_CONTENT {
-            supports_ranges = true;
-            size = content_range_total(&resp);
-        } else if status.is_success() {
-            size = if resp.headers().contains_key(header::CONTENT_LENGTH) {
-                header_content_length(&resp)
+        if size.is_none() {
+            if status == StatusCode::PARTIAL_CONTENT {
+                supports_ranges = true;
+                size = content_range_total(&resp);
+            } else if status.is_success() {
+                size = if resp.headers().contains_key(header::CONTENT_LENGTH) {
+                    header_content_length(&resp)
+                } else {
+                    None
+                };
             } else {
-                None
-            };
-        } else {
-            return Err(format!("HTTP {}", status.as_u16()));
+                return Err(format!("HTTP {}", status.as_u16()));
+            }
+            if filename.is_none() {
+                filename = parse_content_disposition(resp.headers().get(header::CONTENT_DISPOSITION));
+            }
+            if content_type.is_none() {
+                content_type = resp
+                    .headers()
+                    .get(header::CONTENT_TYPE)
+                    .and_then(|v| v.to_str().ok())
+                    .map(String::from);
+            }
+        } else if status == StatusCode::PARTIAL_CONTENT {
+            supports_ranges = true;
         }
-        if filename.is_none() {
-            filename = parse_content_disposition(resp.headers().get(header::CONTENT_DISPOSITION));
-        }
-        if content_type.is_none() {
-            content_type = resp
-                .headers()
-                .get(header::CONTENT_TYPE)
-                .and_then(|v| v.to_str().ok())
-                .map(String::from);
+
+        // Measure throughput by reading up to SPEED_SAMPLE_BYTES of the body and
+        // timing it. A tiny/empty body or a near-instant read yields None so we
+        // never surface a bogus "infinite" speed. The read is capped at 15s so a
+        // very slow host can't hang the probe (and therefore the Start button).
+        let sample = async {
+            let start = Instant::now();
+            let mut read: u64 = 0u64;
+            let mut stream = resp.bytes_stream();
+            while read < SPEED_SAMPLE_BYTES {
+                match stream.next().await {
+                    Some(Ok(chunk)) => read += chunk.len() as u64,
+                    _ => break,
+                }
+            }
+            (read, start.elapsed())
+        };
+        if let Ok((read, elapsed)) = tokio::time::timeout(Duration::from_secs(15), sample).await {
+            let secs = elapsed.as_secs_f64();
+            if read >= 4096 && secs > 0.05 {
+                speed = Some((read as f64 / secs) as u64);
+            }
         }
     }
 
@@ -1563,6 +1600,7 @@ pub async fn probe_url(
         size,
         supports_ranges,
         content_type,
+        speed,
     })
 }
 
@@ -1955,7 +1993,7 @@ mod tests {
                     // HEAD says 200 but carries no Content-Length — common on CDNs.
                     "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nConnection: close\r\n\r\n"
                         .to_string()
-                } else if req.to_ascii_lowercase().contains("range: bytes=0-0") {
+                } else if req.to_ascii_lowercase().contains("range: bytes=0-") {
                     format!(
                         "HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 0-0/{total}\r\nContent-Length: 1\r\nConnection: close\r\n\r\nX"
                     )

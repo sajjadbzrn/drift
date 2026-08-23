@@ -104,6 +104,8 @@ export interface UrlMeta {
   size: number | null;
   supportsRanges: boolean;
   contentType: string | null;
+  /** Measured live connection throughput (bytes/sec), null when unknown. */
+  speed: number | null;
 }
 
 export type Filter =

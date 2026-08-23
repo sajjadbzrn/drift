@@ -165,10 +165,9 @@ jobs:
             A cross-platform release — **drift now ships installers for Windows and Linux**, with in-place auto-update.
 
             ### Highlights
+            - **Download preview before you start** — paste a link and drift now shows a confirmation with the file's **size**, **type**, and an **estimated download time** based on your live connection speed (measured during the probe). If you've set a speed limit, the estimate accounts for it.
+            - **Toasts that fit** — long filenames in notifications (e.g. "Downloading <name>") now wrap inside the toast instead of spilling out of the box and getting clipped.
             - **Windows + Linux** — grab the Windows NSIS installer or a Linux `.deb` / `.AppImage` from the assets below.
-            - **Fresh logo** — the browser companion extension now uses the new drift logo.
-            - **Living background** — the cosmic drift animation keeps moving even when the window loses focus; only the mouse parallax pauses, so it feels alive without eating the GPU.
-            - **No more white flash** — the window now paints dark from the very first frame, so there's no blink of white before the UI loads.
             - **Smarter updates** — a single combined updater manifest keeps every platform current from *Settings → Updates*.
 
             ### Install

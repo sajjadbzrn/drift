@@ -5,9 +5,10 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getCurrent } from "@tauri-apps/plugin-deep-link";
 import { api } from "../lib/ipc";
-import type { AppSettings } from "../types";
+import type { AppSettings, UrlMeta } from "../types";
 import { formatBytes, looksLikeUrl } from "../lib/format";
 import { ArrowDownIcon, ClipboardIcon, FolderIcon, InboxIcon, SettingsIcon, XIcon } from "../lib/icons";
+import { DownloadPreviewModal } from "./DownloadPreviewModal";
 import { useI18n, num } from "../lib/i18n";
 import type { ClipboardHit } from "../hooks/useClipboard";
 
@@ -96,6 +97,12 @@ export function NewDownloadBar({
   const [advanced, setAdvanced] = useState(false);
   const [hash, setHash] = useState("");
   const [proxy, setProxy] = useState("");
+  const [preview, setPreview] = useState<{
+    url: string;
+    name: string;
+    meta: UrlMeta;
+    opts?: { filename?: string | null; referrer?: string | null; cookies?: string | null };
+  } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -139,6 +146,7 @@ export function NewDownloadBar({
       referrer?: string | null;
       cookies?: string | null;
     },
+    skipPreview = false,
   ) => {
     // Bare www. links (no scheme) get https:// added automatically.
     let clean = targetUrl.trim();
@@ -158,10 +166,33 @@ export function NewDownloadBar({
       // Send the referrer + cookies (from the browser extension handoff) so
       // the probe works for hotlink-protected and login-protected files.
       const meta = await api.probeUrl(clean, opts?.referrer ?? undefined, opts?.cookies ?? undefined);
-      let chosen: string;
       // Prefer the hint from the browser when the probe only found a generic name.
       const probeName = meta.filename || "download";
       const name = opts?.filename && probeName === "download" ? opts.filename : probeName;
+      if (skipPreview) {
+        await beginDownload(clean, name, opts);
+      } else {
+        setPreview({ url: clean, name, meta, opts });
+      }
+    } catch (e) {
+      notify(t("startFailed", { err: String(e) }), "error");
+    } finally {
+      setProbing(false);
+    }
+  };
+
+  /** Resolve the save location and actually start the download. */
+  const beginDownload = async (
+    clean: string,
+    name: string,
+    opts?: {
+      filename?: string | null;
+      referrer?: string | null;
+      cookies?: string | null;
+    },
+  ) => {
+    try {
+      let chosen: string;
       // With auto-save on there is no native save dialog: write straight into
       // the chosen/last folder with the server-provided name.
       if (settings.autoSave) {
@@ -196,14 +227,12 @@ export function NewDownloadBar({
       onHitHandled();
     } catch (e) {
       notify(t("startFailed", { err: String(e) }), "error");
-    } finally {
-      setProbing(false);
     }
   };
 
   const downloadAll = async (urls: string[]) => {
     for (const u of urls) {
-      await startFlow(u);
+      await startFlow(u, undefined, true);
     }
     setBatch(null);
     setUrl("");
@@ -298,6 +327,16 @@ export function NewDownloadBar({
 
   return (
     <div className="new-download">
+      {preview && (
+        <DownloadPreviewModal
+          meta={preview.meta}
+          name={preview.name}
+          limitBytes={limitBytes()}
+          onConfirm={() => void beginDownload(preview.url, preview.name, preview.opts)}
+          onCancel={() => setPreview(null)}
+        />
+      )}
+
       {hit && (
         <div className="clipboard-card">
           <span className="clipboard-icon">
