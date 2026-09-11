@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { memo, useEffect, useRef, useState, type ReactNode } from "react";
 import type { DownloadInfo } from "../types";
 import {
   fileKindOf,
@@ -12,6 +12,7 @@ import {
   AppIcon,
   ArchiveIcon,
   CheckCircleIcon,
+  InfoIcon,
   CodeIcon,
   ExternalIcon,
   FileIcon,
@@ -163,13 +164,13 @@ function SpeedSpark({ history }: { history: number[] }) {
   );
 }
 
-export function DownloadCard({
+function DownloadCardImpl({
   d,
   index,
   queuePos,
   selected,
+  compact,
   onSelect,
-  onDoubleClick,
   dragging,
   dropTarget,
   onDragStart,
@@ -185,13 +186,15 @@ export function DownloadCard({
   onOpenFile,
   onOpenFolder,
   onCopy,
+  onOpenDetails,
+  onDoubleClick,
 }: {
   d: DownloadInfo;
   index?: number;
   queuePos?: number;
   selected?: boolean;
+  compact?: boolean;
   onSelect?: (multi: boolean) => void;
-  onDoubleClick?: () => void;
   dragging?: boolean;
   dropTarget?: boolean;
   onDragStart?: () => void;
@@ -207,6 +210,8 @@ export function DownloadCard({
   onOpenFile: (d: DownloadInfo) => void;
   onOpenFolder: (d: DownloadInfo) => void;
   onCopy: (d: DownloadInfo) => void;
+  onOpenDetails: (d: DownloadInfo) => void;
+  onDoubleClick?: () => void;
 }) {
   const t = useI18n();
   const kind = fileKindOf(d.filename);
@@ -242,10 +247,13 @@ export function DownloadCard({
     e.currentTarget.style.setProperty("--my", `${(e.clientY - r.top).toFixed(1)}px`);
   };
 
+  // Range-select anchor: the last card picked with a plain click. Shift+click
+  // in the list selects everything between the anchor and this card.
   return (
     <div
-      className={`card${failed ? " card-failed" : ""}${selected ? " card-selected" : ""}${dragging ? " card-dragging" : ""}${dropTarget ? " card-drop-target" : ""}${justDone ? " card-just-done" : ""}`}
+      className={`card${failed ? " card-failed" : ""}${selected ? " card-selected" : ""}${dragging ? " card-dragging" : ""}${dropTarget ? " card-drop-target" : ""}${justDone ? " card-just-done" : ""}${compact ? " card-compact" : ""}`}
       draggable={typeof onDragStart === "function"}
+      data-id={d.id}
       style={
         {
           animationDelay: `${Math.min(index ?? 0, 10) * 32}ms`,
@@ -305,11 +313,31 @@ export function DownloadCard({
           </div>
         </div>
 
-        <div className="card-bar">
-          <div
-            className={`card-bar-fill${percent === null ? " card-bar-indet" : ""}${d.status === "completed" ? " card-bar-done" : ""}`}
-            style={percent !== null ? { width: `${percent}%` } : undefined}
-          />
+        <div className={`card-bar${d.segmented && d.segments.length > 1 ? " card-bar-multi" : ""}`}>
+          {d.segmented && d.segments.length > 1 ? (
+            // Multi-lane bar: one slot per segment, proportional to its size.
+            d.segments.map((s) => {
+              const expected = s.end - s.start + 1;
+              const pct = expected > 0 ? Math.min(100, (s.received / expected) * 100) : 0;
+              return (
+                <div
+                  className="card-bar-seg"
+                  key={s.index}
+                  style={{ flex: expected || 1 }}
+                >
+                  <div
+                    className="card-bar-seg-fill"
+                    style={{ width: `${pct}%` }}
+                  />
+                </div>
+              );
+            })
+          ) : (
+            <div
+              className={`card-bar-fill${percent === null ? " card-bar-indet" : ""}${d.status === "completed" ? " card-bar-done" : ""}`}
+              style={percent !== null ? { width: `${percent}%` } : undefined}
+            />
+          )}
         </div>
 
         <div className="card-meta">
@@ -413,6 +441,9 @@ export function DownloadCard({
           <ActionBtn title={t("copyLink")} onClick={() => onCopy(d)}>
             <LinkIcon width={15} height={15} />
           </ActionBtn>
+          <ActionBtn title={t("details")} onClick={() => onOpenDetails(d)}>
+            <InfoIcon width={15} height={15} />
+          </ActionBtn>
           <ActionBtn title={t("remove")} tone="danger" onClick={() => onRemove(d)}>
             <TrashIcon width={15} height={15} />
           </ActionBtn>
@@ -421,3 +452,20 @@ export function DownloadCard({
     </div>
   );
 }
+
+/**
+ * Memoized: progress events arrive up to 5/s per download; without memo every
+ * card in the list re-renders (sparkline recompute + SVG rebuild) on each
+ * event even when its own data did not change.
+ */
+export const DownloadCard = memo(
+  DownloadCardImpl,
+  (a, b) =>
+    a.d === b.d &&
+    a.selected === b.selected &&
+    a.compact === b.compact &&
+    a.dragging === b.dragging &&
+    a.dropTarget === b.dropTarget &&
+    a.index === b.index &&
+    a.queuePos === b.queuePos,
+);

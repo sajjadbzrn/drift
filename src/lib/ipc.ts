@@ -55,4 +55,6 @@ export const api = {
 export const EVENTS = {
   list: "download://list",
   progress: "download://progress",
+  /** Batched progress: one event every 200ms with all changed downloads. */
+  progressBatch: "download://progress-batch",
 } as const;

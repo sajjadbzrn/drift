@@ -3,7 +3,7 @@ use futures_util::StreamExt;
 use percent_encoding::percent_decode_str;
 use reqwest::{header, Client, Proxy, StatusCode};
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, AtomicU8, AtomicUsize, Ordering};
@@ -26,6 +26,11 @@ pub const SEGMENT_416_RETRIES: u32 = 3;
 /// bandwidth on every probe; 256 KiB is a good balance for a first-impression
 /// ETA without noticeably delaying the Start button.
 const SPEED_SAMPLE_BYTES: u64 = 256 * 1024; // 256 KiB
+
+/// Write-behind buffer for segment/single-stream writes. Chunks arrive in
+/// ~16 KB TCP pieces; coalescing them into larger sequential writes cuts
+/// syscalls dramatically (matters on HDDs and under speed limits).
+const WRITE_BUF_SIZE: usize = 256 * 1024;
 
 /// Time constant (seconds) of the speed smoother. Larger = stabler readout;
 /// ~1 s smooths out bursty TCP sampling without making ETA feel sluggish.
@@ -69,6 +74,8 @@ pub struct DownloadEntry {
     pub speed_state: Mutex<SpeedState>,
     /// Optional per-download proxy client, built lazily from `info.proxy`.
     pub client_override: Mutex<Option<Client>>,
+    /// Server-provided Retry-After hint in seconds (429/503 responses); 0 = none.
+    pub retry_after: AtomicU64,
 }
 
 pub enum AttemptOutcome {
@@ -98,6 +105,28 @@ pub struct DownloadManager {
     pub settings: Mutex<AppSettings>,
     pub active: AtomicUsize,
     dirty: AtomicU8, // 0 = clean, 1 = dirty
+    /// Entry ids whose progress changed since the pump last drained them.
+    /// One global ticker emits a single batched event instead of every worker
+    /// spamming the frontend with its own IPC message.
+    pending_progress: Mutex<HashSet<String>>,
+}
+
+/// Serialize `json` to `path` atomically: write `path.tmp` first, then rename
+/// over `path`. A crash mid-write leaves the previous good file intact.
+fn write_atomic(path: &Path, json: Option<&str>) {
+    let Some(json) = json else { return };
+    let tmp = path.with_extension("tmp");
+    if fs::write(&tmp, json).is_ok() {
+        let _ = fs::rename(&tmp, path);
+    }
+}
+
+/// True when the main window is visible (not hidden to tray / minimized).
+/// Used to suppress progress IPC while nothing is showing it.
+fn window_visible(app: &AppHandle) -> bool {
+    app.get_webview_window("main")
+        .map(|w| w.is_visible().unwrap_or(false))
+        .unwrap_or(false)
 }
 
 /// Build the shared HTTP client, honoring the configured User-Agent and proxy.
@@ -140,6 +169,31 @@ pub(crate) fn make_client(user_agent: &str, proxy_mode: &str, proxy_url: &str) -
 }
 
 impl DownloadManager {
+    /// Drop completed entries older than `days` from the list (never touches
+    /// files on disk). Runs at startup and whenever the setting changes; keeps
+    /// downloads.json and the UI list small on long-lived installs.
+    pub fn auto_clean(&self, days: u32) {
+        if days == 0 {
+            return;
+        }
+        let cutoff = now_millis().saturating_sub(days as u64 * 24 * 3600 * 1000);
+        let ids: Vec<String> = self
+            .entries
+            .lock()
+            .unwrap()
+            .values()
+            .filter(|e| {
+                let info = e.info.lock().unwrap();
+                info.status == status::COMPLETED
+                    && info.completed_at.map(|t| t < cutoff).unwrap_or(false)
+            })
+            .map(|e| e.info.lock().unwrap().id.clone())
+            .collect();
+        for id in ids {
+            let _ = self.remove(&id);
+        }
+    }
+
     pub fn new(app: AppHandle, settings: AppSettings) -> Self {
         let sem = Arc::new(tokio::sync::Semaphore::new(settings.max_concurrent.max(1)));
         Self {
@@ -154,6 +208,7 @@ impl DownloadManager {
             settings: Mutex::new(settings),
             active: AtomicUsize::new(0),
             dirty: AtomicU8::new(0),
+            pending_progress: Mutex::new(HashSet::new()),
         }
     }
 
@@ -234,6 +289,7 @@ impl DownloadManager {
             seg_recv: (0..n).map(|_| Arc::new(AtomicU64::new(0))).collect(),
             speed_state: Mutex::new(SpeedState::at(0)),
             client_override: Mutex::new(None),
+            retry_after: AtomicU64::new(0),
         });
         let id = entry.info.lock().unwrap().id.clone();
         self.entries.lock().unwrap().insert(id, entry);
@@ -266,13 +322,17 @@ impl DownloadManager {
             .collect();
         let dir = self.app.path().app_data_dir().unwrap_or_default();
         let _ = fs::create_dir_all(&dir);
-        if let Ok(json) = serde_json::to_string_pretty(&infos) {
-            let _ = fs::write(dir.join("downloads.json"), json);
-        }
+        // Atomic writes: write to a temp file then rename over the target so a
+        // crash mid-write can never truncate/corrupt the real state file.
+        write_atomic(
+            &dir.join("downloads.json"),
+            serde_json::to_string_pretty(&infos).ok().as_deref(),
+        );
         let settings = self.settings.lock().unwrap().clone();
-        if let Ok(json) = serde_json::to_string_pretty(&settings) {
-            let _ = fs::write(dir.join("settings.json"), json);
-        }
+        write_atomic(
+            &dir.join("settings.json"),
+            serde_json::to_string_pretty(&settings).ok().as_deref(),
+        );
     }
 
     /// Background task: flush to disk every 5s if the dirty flag is set.
@@ -303,8 +363,52 @@ impl DownloadManager {
     }
 
     pub fn emit_progress(&self, entry: &DownloadEntry) {
+        // Nobody is listening while the main window is hidden to the tray —
+        // skip the JSON serialize + IPC round-trip entirely. The 5s batcher
+        // still persists state, so nothing is lost.
+        if !window_visible(&self.app) {
+            return;
+        }
         let info = entry.info.lock().unwrap().clone();
         let _ = self.app.emit("download://progress", info);
+    }
+
+    /// Queue an entry id for the next batched progress emission. Cheap —
+    /// workers call this every chunk without any locking contention beyond
+    /// the short set insert.
+    pub fn mark_progress(&self, id: &str) {
+        self.pending_progress.lock().unwrap().insert(id.to_string());
+    }
+
+    /// Background pump: every 200ms, emit one list-style event containing all
+    /// entries whose progress changed, replacing the per-worker per-chunk
+    /// event storm (previously up to ~7 events/s per download).
+    pub fn start_progress_pump(self: &Arc<Self>) {
+        let this = self.clone();
+        tauri::async_runtime::spawn(async move {
+            let mut ticker = tokio::time::interval(Duration::from_millis(200));
+            loop {
+                ticker.tick().await;
+                let ids: Vec<String> = {
+                    let mut set = this.pending_progress.lock().unwrap();
+                    set.drain().collect::<Vec<_>>()
+                };
+                if ids.is_empty() || !window_visible(&this.app) {
+                    continue;
+                }
+                let entries = this.entries.lock().unwrap();
+                let mut payload: Vec<DownloadInfo> = Vec::with_capacity(ids.len());
+                for id in &ids {
+                    if let Some(e) = entries.get(id) {
+                        payload.push(e.info.lock().unwrap().clone());
+                    }
+                }
+                drop(entries);
+                if !payload.is_empty() {
+                    let _ = this.app.emit("download://progress-batch", payload);
+                }
+            }
+        });
     }
 
     // ------------------------------------------------------------- commands
@@ -341,7 +445,16 @@ impl DownloadManager {
             Some(p) => make_client(&self.settings.lock().unwrap().user_agent, "custom", p),
             None => self.client(),
         };
-        let meta = probe_url(&probe_client, &url, referrer.as_deref(), cookies.as_deref()).await?;
+        // No speed sample: starting a download measures speed for real, so
+        // sampling here only delayed the start and burned 256 KiB.
+        let meta = probe_url(
+            &probe_client,
+            &url,
+            referrer.as_deref(),
+            cookies.as_deref(),
+            false,
+        )
+        .await?;
 
         // Auto-categorize: route into a per-type subfolder when enabled and a
         // rule matches the extension or MIME type.
@@ -387,7 +500,10 @@ impl DownloadManager {
         let want_segmented = segmented.unwrap_or(settings.segmented)
             && meta.supports_ranges
             && meta.size.unwrap_or(0) >= SEGMENT_MIN_SIZE;
-        let max_seg = MAX_SEGMENTS.min(settings.max_concurrent.max(1) * 2);
+        // Parallel connections per download are their own setting — decoupled
+        // from max_concurrent (the queue limit) so a single huge download can
+        // still use every connection.
+        let max_seg = MAX_SEGMENTS.min(settings.max_connections.clamp(1, MAX_SEGMENTS));
         let nseg = if want_segmented {
             let size = meta.size.unwrap_or(0);
             (((size / SEGMENT_MIN_SIZE) as usize) + 1)
@@ -446,6 +562,8 @@ impl DownloadManager {
             proxy: proxy.clone(),
             completed_at: None,
             priority,
+            etag: None,
+            last_modified: None,
         };
         let entry = Arc::new(DownloadEntry {
             info: Mutex::new(info),
@@ -453,6 +571,7 @@ impl DownloadManager {
             seg_recv: (0..nseg).map(|_| Arc::new(AtomicU64::new(0))).collect(),
             speed_state: Mutex::new(SpeedState::at(0)),
             client_override: Mutex::new(None),
+            retry_after: AtomicU64::new(0),
         });
         let id = entry.info.lock().unwrap().id.clone();
         self.entries.lock().unwrap().insert(id, entry.clone());
@@ -481,6 +600,26 @@ impl DownloadManager {
         let status = entry.info.lock().unwrap().status.clone();
         if status != status::PAUSED {
             return Err(format!("Cannot resume a {status} download"));
+        }
+        // The disk may have filled up while the download sat paused — re-check
+        // against what still remains to be fetched.
+        {
+            let info = entry.info.lock().unwrap();
+            if let Some(total) = info.total_size {
+                let remaining = total.saturating_sub(info.received);
+                let dir = PathBuf::from(&info.dir);
+                if remaining > 0 {
+                    if let Some(free) = free_space(&dir) {
+                        if free < remaining {
+                            return Err(format!(
+                                "Not enough disk space to resume: need {}, only {} free",
+                                fmt_bytes(remaining),
+                                fmt_bytes(free)
+                            ));
+                        }
+                    }
+                }
+            }
         }
         entry.action.store(0, Ordering::SeqCst);
         {
@@ -653,7 +792,12 @@ impl DownloadManager {
                 &settings.proxy_url,
             );
         }
+        let clean_days_changed = cur.auto_clean_days != settings.auto_clean_days;
         *cur = settings;
+        drop(cur);
+        if clean_days_changed {
+            self.auto_clean(self.settings.lock().unwrap().auto_clean_days);
+        }
     }
 
     /// Change a running download's speed limit (bytes/second, 0 = unlimited).
@@ -662,7 +806,7 @@ impl DownloadManager {
         let entry = self.get(id)?;
         entry.info.lock().unwrap().speed_limit = limit;
         self.persist();
-        self.emit_progress(&entry);
+        self.mark_progress(&entry.info.lock().unwrap().id);
         Ok(())
     }
 
@@ -758,9 +902,24 @@ impl DownloadManager {
                             info.error = Some(format!("Retry {retries}/{max_retries}: {msg}"));
                             info.updated_at = now_millis();
                         }
-                        self.emit_progress(&entry);
+                        self.mark_progress(&entry.info.lock().unwrap().id);
                         self.persist();
-                        let backoff = Duration::from_secs((1u64 << retries.min(5)).min(30));
+                        // Exponential backoff with jitter, plus the server's
+                        // own Retry-After hint when it sent one. Jitter keeps
+                        // N concurrent retries from hammering the host in
+                        // lockstep (thundering herd).
+                        let retry_after = self.retry_after_hint(&entry);
+                        let base = (1u64 << retries.min(5)).min(30);
+                        let jitter = (SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .map(|t| t.subsec_millis() as u64)
+                            .unwrap_or(0)
+                            % 500) as f64
+                            / 1000.0;
+                        let mut backoff = Duration::from_secs_f64((base as f64 + jitter).min(60.0));
+                        if let Some(ra) = retry_after {
+                            backoff = backoff.max(ra);
+                        }
                         tokio::time::sleep(backoff).await;
                         continue;
                     }
@@ -827,7 +986,7 @@ impl DownloadManager {
                         info.updated_at = now_millis();
                     }
                     self.cleanup_parts(&entry);
-                    self.emit_progress(&entry);
+                    self.mark_progress(&entry.info.lock().unwrap().id);
                     self.attempt_single(entry, url, supports_ranges, total_size, referrer)
                         .await
                 }
@@ -864,21 +1023,76 @@ impl DownloadManager {
         }
 
         let client = self.client_for(&entry);
-        let mut req = client.get(&url);
-        if let Some(r) = referrer.as_deref() {
-            req = req.header(header::REFERER, r);
-        }
-        if let Some(c) = cookies.as_deref() {
-            if !c.is_empty() {
-                req = req.header(header::COOKIE, c);
+        // Send the request, then validate the remote against the ETag /
+        // Last-Modified captured on the first attempt. If the file changed
+        // under us while resuming, drop the partial data and re-request from
+        // zero — appending would splice two different files together. At most
+        // two passes: the second one is always a fresh (non-resume) request.
+        let resp = loop {
+            let mut req = client.get(&url);
+            if let Some(r) = referrer.as_deref() {
+                req = req.header(header::REFERER, r);
             }
-        }
-        if append {
-            req = req.header(header::RANGE, format!("bytes={start}-"));
-        }
-        let resp = match req.send().await {
-            Ok(r) => r,
-            Err(e) => return AttemptOutcome::Failed(e.to_string()),
+            if let Some(c) = cookies.as_deref() {
+                if !c.is_empty() {
+                    req = req.header(header::COOKIE, c);
+                }
+            }
+            if append {
+                req = req.header(header::RANGE, format!("bytes={start}-"));
+            }
+            let resp = match req.send().await {
+                Ok(r) => r,
+                Err(e) => return AttemptOutcome::Failed(e.to_string()),
+            };
+            let cur_etag = resp
+                .headers()
+                .get(header::ETAG)
+                .and_then(|v| v.to_str().ok())
+                .map(String::from);
+            let cur_lm = resp
+                .headers()
+                .get(header::LAST_MODIFIED)
+                .and_then(|v| v.to_str().ok())
+                .map(String::from);
+            if append {
+                let (saved_etag, saved_lm) = {
+                    let info = entry.info.lock().unwrap();
+                    (info.etag.clone(), info.last_modified.clone())
+                };
+                let changed = saved_etag
+                    .as_deref()
+                    .zip(cur_etag.as_deref())
+                    .map(|(a, b)| a != b)
+                    .unwrap_or(false)
+                    || saved_lm
+                        .as_deref()
+                        .zip(cur_lm.as_deref())
+                        .map(|(a, b)| a != b)
+                        .unwrap_or(false);
+                if changed {
+                    // Stale partial data — start over from byte 0.
+                    let _ = fs::remove_file(&part);
+                    {
+                        let mut info = entry.info.lock().unwrap();
+                        info.received = 0;
+                        info.etag = None;
+                        info.last_modified = None;
+                    }
+                    append = false;
+                    start = 0;
+                    continue;
+                }
+            } else {
+                let mut info = entry.info.lock().unwrap();
+                if info.etag.is_none() {
+                    info.etag = cur_etag;
+                }
+                if info.last_modified.is_none() {
+                    info.last_modified = cur_lm;
+                }
+            }
+            break resp;
         };
         let status = resp.status();
         // 416 on a resume range (`bytes=start-`) means nothing remains: the
@@ -891,6 +1105,7 @@ impl DownloadManager {
         } else if already_complete {
             (start, true)
         } else {
+            self.capture_retry_after(&entry, &resp);
             return AttemptOutcome::Failed(format!("HTTP {}", status.as_u16()));
         };
         // If the probe couldn't determine the size, learn it from the real
@@ -915,7 +1130,7 @@ impl DownloadManager {
             info.received = received;
         }
         if learned.is_some() {
-            self.emit_progress(&entry);
+            self.mark_progress(&entry.info.lock().unwrap().id);
         }
         if received == 0 {
             let _ = fs::remove_file(&part);
@@ -924,7 +1139,7 @@ impl DownloadManager {
         // from the actual byte offset, not from zero.
         *entry.speed_state.lock().unwrap() = SpeedState::at(received);
 
-        let mut file = match tokio::fs::OpenOptions::new()
+        let file = match tokio::fs::OpenOptions::new()
             .create(true)
             .append(append)
             .write(true)
@@ -934,6 +1149,8 @@ impl DownloadManager {
             Ok(f) => f,
             Err(e) => return AttemptOutcome::Failed(format!("Cannot write file: {e}")),
         };
+        // Coalesce ~16 KB TCP chunks into larger sequential writes.
+        let mut file = tokio::io::BufWriter::with_capacity(WRITE_BUF_SIZE, file);
 
         if already_complete {
             // 416 on a resume range: the partial .part already holds the whole
@@ -985,8 +1202,9 @@ impl DownloadManager {
                     }
                 }
                 if last_emit.elapsed() >= Duration::from_millis(150) {
+                    let id = entry.info.lock().unwrap().id.clone();
                     self.update_speed(&entry, received);
-                    self.emit_progress(&entry);
+                    self.mark_progress(&id);
                     last_emit = Instant::now();
                 }
             }
@@ -1024,7 +1242,7 @@ impl DownloadManager {
             }
         }
         self.update_speed(&entry, received);
-        self.emit_progress(&entry);
+        self.mark_progress(&entry.info.lock().unwrap().id);
         AttemptOutcome::Done
     }
 
@@ -1084,7 +1302,7 @@ impl DownloadManager {
                 if f2.load(Ordering::SeqCst) {
                     break;
                 }
-                prog_this.emit_aggregate(&prog_entry);
+                prog_this.mark_aggregate(&prog_entry);
             }
         });
 
@@ -1208,7 +1426,7 @@ impl DownloadManager {
             info.speed = 0.0;
             info.updated_at = now_millis();
         }
-        self.emit_progress(&entry);
+        self.mark_progress(&entry.info.lock().unwrap().id);
         AttemptOutcome::Done
     }
 
@@ -1263,6 +1481,27 @@ impl DownloadManager {
             .show();
     }
 
+    /// Store a Retry-After hint from a 429/503 response for the next backoff.
+    fn capture_retry_after(&self, entry: &DownloadEntry, resp: &reqwest::Response) {
+        let secs = resp
+            .headers()
+            .get(header::RETRY_AFTER)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.trim().parse::<u64>().ok())
+            .unwrap_or(0);
+        entry.retry_after.store(secs, Ordering::SeqCst);
+    }
+
+    /// Take the stored Retry-After hint (if any), clearing it.
+    fn retry_after_hint(&self, entry: &DownloadEntry) -> Option<Duration> {
+        let secs = entry.retry_after.swap(0, Ordering::SeqCst);
+        if secs > 0 {
+            Some(Duration::from_secs(secs.min(300)))
+        } else {
+            None
+        }
+    }
+
     fn effective_limit(&self, speed_limit: u64) -> u64 {
         let settings = self.settings.lock().unwrap();
         let g = settings.global_speed_limit;
@@ -1301,7 +1540,10 @@ impl DownloadManager {
         info.updated_at = now_millis();
     }
 
-    fn emit_aggregate(&self, entry: &DownloadEntry) {
+    /// Live progress reporter for segmented downloads: recompute received
+    /// from the per-segment counters and queue a batched emission. No direct
+    /// IPC here — the pump coalesces all active downloads into one event.
+    fn mark_aggregate(&self, entry: &DownloadEntry) {
         let base: u64 = entry
             .info
             .lock()
@@ -1315,7 +1557,8 @@ impl DownloadManager {
             live += c.load(Ordering::SeqCst);
         }
         self.update_speed(entry, base + live);
-        self.emit_progress(entry);
+        let id = entry.info.lock().unwrap().id.clone();
+        self.mark_progress(&id);
     }
 
     fn finalize_received(&self, entry: &DownloadEntry) {
@@ -1408,6 +1651,7 @@ async fn download_segment(
         // 200 on a ranged request: server doesn't support ranges.
         return Err(AttemptError::Unsupported);
     } else {
+        capture_retry_after(&entry, &resp);
         return Err(AttemptError::Failed(format!("HTTP {}", status.as_u16())));
     };
     // Segments only exist because ranges are supported, but the response can
@@ -1423,7 +1667,7 @@ async fn download_segment(
     if seg.received == 0 {
         let _ = fs::remove_file(&part);
     }
-    let mut file = match tokio::fs::OpenOptions::new()
+    let file = match tokio::fs::OpenOptions::new()
         .create(true)
         .append(append)
         .write(true)
@@ -1433,6 +1677,8 @@ async fn download_segment(
         Ok(f) => f,
         Err(e) => return Err(AttemptError::Failed(format!("Cannot write file: {e}"))),
     };
+    // Coalesce ~16 KB TCP chunks into larger sequential writes.
+    let mut file = tokio::io::BufWriter::with_capacity(WRITE_BUF_SIZE, file);
 
     let mut stream = resp.bytes_stream();
     let mut chunk_bytes = 0u64;
@@ -1486,6 +1732,7 @@ pub async fn probe_url(
     url: &str,
     referrer: Option<&str>,
     cookies: Option<&str>,
+    sample: bool,
 ) -> Result<UrlMeta, String> {
     let mut head_req = client.head(url);
     if let Some(r) = referrer {
@@ -1529,6 +1776,19 @@ pub async fn probe_url(
     // the true size (when HEAD omitted Content-Length) and to measure the live
     // connection throughput so the UI can show an approximate download time
     // before the user commits to the download.
+    //
+    // Skipped entirely (`sample = false`) when the caller is about to start a
+    // real download: the transfer itself measures everything, and the sample
+    // only wasted bandwidth and delayed the Start button.
+    if !sample {
+        return Ok(UrlMeta {
+            filename: filename.unwrap_or_else(|| filename_from_url(url)),
+            size,
+            supports_ranges,
+            content_type,
+            speed: None,
+        });
+    }
     let mut speed_req = client
         .get(url)
         .header(header::RANGE, format!("bytes=0-{}", SPEED_SAMPLE_BYTES - 1));
@@ -1558,7 +1818,8 @@ pub async fn probe_url(
                 return Err(format!("HTTP {}", status.as_u16()));
             }
             if filename.is_none() {
-                filename = parse_content_disposition(resp.headers().get(header::CONTENT_DISPOSITION));
+                filename =
+                    parse_content_disposition(resp.headers().get(header::CONTENT_DISPOSITION));
             }
             if content_type.is_none() {
                 content_type = resp
@@ -1602,6 +1863,18 @@ pub async fn probe_url(
         content_type,
         speed,
     })
+}
+
+/// Free-function variant of `DownloadManager::capture_retry_after` for the
+/// segment worker, which has no manager handle.
+fn capture_retry_after(entry: &DownloadEntry, resp: &reqwest::Response) {
+    let secs = resp
+        .headers()
+        .get(header::RETRY_AFTER)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        .unwrap_or(0);
+    entry.retry_after.store(secs, Ordering::SeqCst);
 }
 
 fn content_range_total(resp: &reqwest::Response) -> Option<u64> {
@@ -2015,7 +2288,14 @@ mod tests {
         let addr = serve_no_length_head(12_345);
         let client = Client::new();
         let meta = tauri::async_runtime::block_on(async move {
-            probe_url(&client, &format!("http://{addr}/video.mp4"), None, None).await
+            probe_url(
+                &client,
+                &format!("http://{addr}/video.mp4"),
+                None,
+                None,
+                true,
+            )
+            .await
         })
         .expect("probe should succeed");
         assert_eq!(
@@ -2045,7 +2325,7 @@ mod tests {
         });
         let client = Client::new();
         let meta = tauri::async_runtime::block_on(async move {
-            probe_url(&client, &format!("http://{addr}/a.bin"), None, None).await
+            probe_url(&client, &format!("http://{addr}/a.bin"), None, None, true).await
         })
         .expect("probe should succeed");
         assert_eq!(meta.size, Some(999));

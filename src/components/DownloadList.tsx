@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DownloadInfo, Filter } from "../types";
 import { DownloadCard } from "./DownloadCard";
-import { InboxIcon, ActivityIcon, CheckCircleIcon, PauseIcon, XIcon } from "../lib/icons";
+import { InboxIcon, ActivityIcon, CheckCircleIcon, PauseIcon, XIcon, GridIcon } from "../lib/icons";
 import { useI18n } from "../lib/i18n";
 
 const EMPTY_KEYS: Record<Filter, { title: string; sub: string }> = {
@@ -21,8 +21,12 @@ const EMPTY_ICONS: Record<Filter, typeof InboxIcon> = {
 
 /** Estimated height of one card row (card + gap). Roughly constant. */
 const ROW_HEIGHT = 152;
+/** Compact rows are much shorter than full cards. */
+const COMPACT_ROW_HEIGHT = 56;
 /** Extra rows rendered above and below the viewport for smooth scrolling. */
 const OVERSCAN = 4;
+
+export type SortMode = "queue" | "date" | "size" | "speed";
 
 export function DownloadList({
   downloads,
@@ -39,6 +43,9 @@ export function DownloadList({
   onOpenFile,
   onOpenFolder,
   onCopy,
+  onOpenDetails,
+  compact,
+  sort,
 }: {
   downloads: DownloadInfo[];
   filter: Filter;
@@ -54,6 +61,9 @@ export function DownloadList({
   onOpenFile: (d: DownloadInfo) => void;
   onOpenFolder: (d: DownloadInfo) => void;
   onCopy: (d: DownloadInfo) => void;
+  onOpenDetails: (d: DownloadInfo) => void;
+  compact: boolean;
+  sort: SortMode;
 }) {
   const t = useI18n();
 
@@ -87,11 +97,22 @@ export function DownloadList({
     setOverId(null);
   }, []);
 
+  // Non-queue sorts are computed here; "queue" keeps the incoming order.
+  const sorted = useMemo(() => {
+    if (sort === "queue") return downloads;
+    const list = downloads.slice();
+    if (sort === "date") list.sort((a, b) => b.createdAt - a.createdAt);
+    else if (sort === "size") list.sort((a, b) => (b.totalSize ?? 0) - (a.totalSize ?? 0));
+    else if (sort === "speed") list.sort((a, b) => b.speed - a.speed);
+    return list;
+  }, [downloads, sort]);
+
   const renderCard = (d: DownloadInfo, index: number) => (
     <DownloadCard
       key={d.id}
       d={d}
       index={index}
+      compact={compact}
       queuePos={d.status === "queued" ? index + 1 : 0}
       onContext={onContext}
       onPause={onPause}
@@ -102,11 +123,12 @@ export function DownloadList({
       onOpenFile={onOpenFile}
       onOpenFolder={onOpenFolder}
       onCopy={onCopy}
+      onOpenDetails={onOpenDetails}
       selected={selectedIds.has(d.id)}
       onSelect={(multi) => onSelect(d.id, multi)}
       onDoubleClick={() => {
         if (d.status === "completed") onOpenFile(d);
-        else onOpenFolder(d);
+        else onOpenDetails(d);
       }}
       dragging={dragId === d.id}
       dropTarget={overId === d.id && dragId !== d.id}
@@ -125,41 +147,44 @@ export function DownloadList({
     />
   );
 
-  // Regular render when the list is small enough that virtualization overhead
-  // would be pointless.
-  if (downloads.length <= 30) {
-      if (downloads.length === 0) {
-        const keys = EMPTY_KEYS[filter];
-        const Icon = EMPTY_ICONS[filter];
-        return (
-          <div className="empty">
-            <div className="empty-icon">
-              {filter === "all" ? (
-                <img className="empty-logo" src="/drift.png" alt="" draggable={false} />
-              ) : (
-                <Icon width={30} height={30} />
-              )}
-            </div>
-            <span className="empty-title">{t(keys.title)}</span>
-            <span className="empty-sub">{t(keys.sub)}</span>
-          </div>
-        );
-      }
+  if (downloads.length === 0) {
+    const keys = EMPTY_KEYS[filter];
+    const Icon = EMPTY_ICONS[filter];
     return (
-      <div className="list" ref={containerRef} onScroll={onScroll}>
-        {downloads.map((d, i) => renderCard(d, i))}
+      <div className="empty">
+        <div className="empty-icon">
+          {filter === "all" ? (
+            <img className="empty-logo" src="/drift.png" alt="" draggable={false} />
+          ) : (
+            <Icon width={30} height={30} />
+          )}
+        </div>
+        <span className="empty-title">{t(keys.title)}</span>
+        <span className="empty-sub">{t(keys.sub)}</span>
       </div>
     );
   }
 
-  const totalHeight = downloads.length * ROW_HEIGHT;
-  const startIdx = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);
-  const endIdx = Math.min(downloads.length, Math.ceil((scrollTop + containerHeight) / ROW_HEIGHT) + OVERSCAN);
-  const visible = downloads.slice(startIdx, endIdx);
-  const offsetY = startIdx * ROW_HEIGHT;
+  const rowHeight = compact ? COMPACT_ROW_HEIGHT : ROW_HEIGHT;
+
+  // Regular render when the list is small enough that virtualization overhead
+  // would be pointless.
+  if (sorted.length <= 30) {
+    return (
+      <div className={`list${compact ? " list-compact" : ""}`} ref={containerRef} onScroll={onScroll}>
+        {sorted.map((d, i) => renderCard(d, i))}
+      </div>
+    );
+  }
+
+  const totalHeight = sorted.length * rowHeight;
+  const startIdx = Math.max(0, Math.floor(scrollTop / rowHeight) - OVERSCAN);
+  const endIdx = Math.min(sorted.length, Math.ceil((scrollTop + containerHeight) / rowHeight) + OVERSCAN);
+  const visible = sorted.slice(startIdx, endIdx);
+  const offsetY = startIdx * rowHeight;
 
   return (
-    <div className="list" ref={containerRef} onScroll={onScroll}>
+    <div className={`list${compact ? " list-compact" : ""}`} ref={containerRef} onScroll={onScroll}>
       <div style={{ height: totalHeight, position: "relative" }}>
         <div style={{ position: "absolute", top: offsetY, width: "100%" }}>
           {visible.map((d, i) => renderCard(d, startIdx + i))}
@@ -168,3 +193,5 @@ export function DownloadList({
     </div>
   );
 }
+
+export { GridIcon };

@@ -8,9 +8,9 @@ use crate::models::{AppSettings, DownloadInfo, UrlMeta};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager, State};
 
-use tauri_plugin_deep_link::DeepLinkExt;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
+use tauri_plugin_deep_link::DeepLinkExt;
 
 #[tauri::command]
 async fn probe_url(
@@ -21,14 +21,10 @@ async fn probe_url(
     proxy: Option<String>,
 ) -> Result<UrlMeta, String> {
     let client = match proxy.filter(|p| !p.trim().is_empty()) {
-        Some(p) => download::make_client(
-            &state.settings.lock().unwrap().user_agent,
-            "custom",
-            &p,
-        ),
+        Some(p) => download::make_client(&state.settings.lock().unwrap().user_agent, "custom", &p),
         None => state.client(),
     };
-    download::probe_url(&client, &url, referrer.as_deref(), cookies.as_deref()).await
+    download::probe_url(&client, &url, referrer.as_deref(), cookies.as_deref(), true).await
 }
 
 #[tauri::command]
@@ -45,7 +41,16 @@ async fn start_download(
 ) -> Result<DownloadInfo, String> {
     state
         .inner()
-        .start_download(url, path, speed_limit, segmented, referrer, cookies, hash, proxy)
+        .start_download(
+            url,
+            path,
+            speed_limit,
+            segmented,
+            referrer,
+            cookies,
+            hash,
+            proxy,
+        )
         .await
 }
 
@@ -115,7 +120,10 @@ fn get_settings(state: State<'_, Arc<DownloadManager>>) -> AppSettings {
 }
 
 #[tauri::command]
-fn set_settings(state: State<'_, Arc<DownloadManager>>, settings: AppSettings) -> Result<(), String> {
+fn set_settings(
+    state: State<'_, Arc<DownloadManager>>,
+    settings: AppSettings,
+) -> Result<(), String> {
     let app = state.inner().app.clone();
     let lang_changed = {
         let cur = state.settings.lock().unwrap();
@@ -141,7 +149,11 @@ fn tray_tooltip_text(lang: &str, count: usize) -> String {
         if lang == "fa" {
             format!("دریفت — {} دانلود فعال", count)
         } else {
-            format!("drift — {} active download{}", count, if count == 1 { "" } else { "s" })
+            format!(
+                "drift — {} active download{}",
+                count,
+                if count == 1 { "" } else { "s" }
+            )
         }
     } else if lang == "fa" {
         "دریفت — مدیر دانلود".into()
@@ -177,21 +189,33 @@ fn tray_menu(app: &tauri::AppHandle, lang: &str) -> tauri::Result<tauri::menu::M
     let show = MenuItem::with_id(
         app,
         "show",
-        if fa { "نمایش / مخفی‌کردن دریفت" } else { "Show / Hide drift" },
+        if fa {
+            "نمایش / مخفی‌کردن دریفت"
+        } else {
+            "Show / Hide drift"
+        },
         true,
         None::<&str>,
     )?;
     let pause_all = MenuItem::with_id(
         app,
         "pause_all",
-        if fa { "توقف همه دانلودها" } else { "Pause all downloads" },
+        if fa {
+            "توقف همه دانلودها"
+        } else {
+            "Pause all downloads"
+        },
         true,
         None::<&str>,
     )?;
     let resume_all = MenuItem::with_id(
         app,
         "resume_all",
-        if fa { "ادامه همه دانلودها" } else { "Resume all downloads" },
+        if fa {
+            "ادامه همه دانلودها"
+        } else {
+            "Resume all downloads"
+        },
         true,
         None::<&str>,
     )?;
@@ -199,7 +223,11 @@ fn tray_menu(app: &tauri::AppHandle, lang: &str) -> tauri::Result<tauri::menu::M
     let quit = MenuItem::with_id(
         app,
         "quit",
-        if fa { "خروج از دریفت" } else { "Quit drift" },
+        if fa {
+            "خروج از دریفت"
+        } else {
+            "Quit drift"
+        },
         true,
         None::<&str>,
     )?;
@@ -286,15 +314,20 @@ pub fn run() {
     builder = builder
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(|app, _shortcut, event| {
+                    if event.state == tauri_plugin_global_shortcut::ShortcutState::Pressed {
+                        show_main_window(app);
+                    }
+                })
+                .build(),
+        )
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             // On Windows a deep link while the app is already running arrives as
             // a second instance — forward the URL to the frontend before
             // bringing the window back.
-            if let Some(url) = args
-                .iter()
-                .find(|a| a.starts_with("drift://"))
-                .cloned()
-            {
+            if let Some(url) = args.iter().find(|a| a.starts_with("drift://")).cloned() {
                 let _ = app.emit("drift://incoming", url);
             }
             show_main_window(app);
@@ -329,10 +362,16 @@ pub fn run() {
             for info in infos {
                 manager.restore_entry(info);
             }
-            app.manage(manager);
+            app.manage(manager.clone());
+            // Prune completed entries older than the auto-clean setting.
+            let clean_days = manager.settings.lock().unwrap().auto_clean_days;
+            manager.auto_clean(clean_days);
             // Background task that flushes state to disk every 5s during active
             // downloads, avoiding per-change JSON serialize for large lists.
             app.state::<Arc<DownloadManager>>().start_batcher();
+            // Coalesced progress events: one message every 200ms for all
+            // changed downloads instead of per-worker per-chunk events.
+            app.state::<Arc<DownloadManager>>().start_progress_pump();
 
             // drift://add?url=<encoded> — lets the browser (via a bookmarklet or
             // extension) hand links straight to drift.
@@ -346,6 +385,29 @@ pub fn run() {
 
             // System tray.
             build_tray(app)?;
+
+            // Global hotkey: Ctrl+Alt+D shows/hides drift from anywhere.
+            // Registration is best-effort — another app may own the combo.
+            #[cfg(desktop)]
+            {
+                use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut};
+                let _ = app.global_shortcut().on_shortcut(
+                    Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyD),
+                    move |handle, _shortcut, event| {
+                        if event.state == tauri_plugin_global_shortcut::ShortcutState::Pressed {
+                            if let Some(w) = handle.get_webview_window("main") {
+                                if w.is_visible().unwrap_or(false)
+                                    && w.is_focused().unwrap_or(false)
+                                {
+                                    let _ = w.hide();
+                                } else {
+                                    show_main_window(handle);
+                                }
+                            }
+                        }
+                    },
+                );
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

@@ -46,6 +46,9 @@ export interface DownloadInfo {
   completedAt: number | null;
   /** Queue position: lower = closer to the front (0 = first). */
   priority: number;
+  /** Remote validator captured on the first response (resume integrity). */
+  etag: string | null;
+  lastModified: string | null;
 }
 
 export type Theme = "system" | "dark" | "light";
@@ -82,6 +85,10 @@ export interface AppSettings {
   autoCategorize: boolean;
   /** Rules mapping extensions/MIME types to subfolders. */
   categoryRules: CategoryRule[];
+  /** Parallel connections per segmented download (1..=8). */
+  maxConnections: number;
+  /** Auto-remove completed entries older than N days (0 = never). */
+  autoCleanDays: number;
 }
 
 export interface CategoryRule {

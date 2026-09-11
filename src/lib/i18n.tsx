@@ -105,6 +105,26 @@ const DICT: Record<Lang, Record<string, Tpl>> = {
     showInFolder: "Show in folder",
     copyLink: "Copy link",
     remove: "Remove",
+    details: "Details",
+
+    // details drawer
+    detailStatus: "Status",
+    detailProgress: "Progress",
+    detailUrl: "URL",
+    detailReferrer: "Referrer",
+    detailFolder: "Folder",
+    detailSavedAt: "Added",
+    detailCompletedAt: "Completed",
+    segments: "Segments",
+
+    // list view controls
+    sortBy: "Sort by",
+    sortQueue: "Queue order",
+    sortDate: "Newest",
+    sortSize: "Largest",
+    sortSpeed: "Fastest",
+    compactView: "Compact view",
+    fullView: "Full view",
 
     // context menu
     moveUp: "Move up",
@@ -391,6 +411,26 @@ const DICT: Record<Lang, Record<string, Tpl>> = {
     showInFolder: "نمایش در پوشه",
     copyLink: "کپی لینک",
     remove: "حذف",
+    details: "جزئیات",
+
+    // details drawer
+    detailStatus: "وضعیت",
+    detailProgress: "پیشرفت",
+    detailUrl: "نشانی",
+    detailReferrer: "مرجع",
+    detailFolder: "پوشه",
+    detailSavedAt: "افزوده شد",
+    detailCompletedAt: "کامل شد",
+    segments: "بخش‌ها",
+
+    // list view controls
+    sortBy: "مرتب‌سازی بر اساس",
+    sortQueue: "ترتیب صف",
+    sortDate: "جدیدترین",
+    sortSize: "بزرگ‌ترین",
+    sortSpeed: "سریع‌ترین",
+    compactView: "نمایش فشرده",
+    fullView: "نمایش کامل",
 
     // context menu
     moveUp: "انتقال به بالا",

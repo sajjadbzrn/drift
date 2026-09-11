@@ -57,21 +57,35 @@ const NEB_FRAG = /* glsl */ `
    void main() {
      vec2 uv = vUv;
      vec2 p = (uv - 0.5) * vec2(uAspect, 1.0) * 3.0;
-     float t = uTime * 0.04;
+     float t = uTime * 0.035;
 
-     float w = fbm(p * 1.1 + vec2(t, -t * 0.6));
-     float clouds = fbm(p * 1.5 + w * 2.0);
-     clouds = pow(clamp(clouds, 0.0, 1.0), 1.5);
+     // Large, slowly-drifting cloud masses (domain-warped FBM).
+     float w = fbm(p * 1.15 + vec2(t * 0.7, -t * 0.4));
+     float clouds = fbm(p * 1.6 + w * 1.9);
+     clouds = pow(clamp(clouds, 0.0, 1.0), 1.6);
 
-    vec3 col = mix(uColor1, uColor2, smoothstep(0.15, 0.65, clouds));
-    col = mix(col, uColor3, smoothstep(0.5, 0.9, clouds));
-    float core = smoothstep(0.72, 1.0, clouds);
-    col += core * uColor4 * 0.7;
+     // Fine, fast-moving wisp detail layered on top of the masses.
+     float fine = fbm(p * 3.4 - vec2(t * 0.9, t * 0.6));
+     float wisps = smoothstep(0.42, 0.9, clouds) * smoothstep(0.35, 0.95, fine);
 
-    float vig = smoothstep(1.15, 0.25, length(uv - 0.5));
-    float alpha = clouds * uOpacity * vig;
-    gl_FragColor = vec4(col, alpha);
-  }
+     vec3 col = mix(uColor1, uColor2, smoothstep(0.12, 0.6, clouds));
+     col = mix(col, uColor3, smoothstep(0.45, 0.9, clouds));
+     float core = smoothstep(0.7, 1.0, clouds);
+     col += core * uColor4 * 0.72;
+     col += wisps * uColor3 * 0.22;
+
+     // Sparse, gently-twinkling star glints for a sense of depth. Runs in the
+     // same fullscreen pass so it stays essentially free on the GPU.
+     vec2 sp = (uv - 0.5) * vec2(uAspect, 1.0) * 9.0;
+     float starField = fbm(sp + vec2(t * 0.12, -t * 0.08));
+     float tw = 0.5 + 0.5 * sin(uTime * 1.5 + starField * 62.0);
+     float star = smoothstep(0.972, 0.995, starField) * (0.3 + 0.7 * tw);
+     col += vec3(1.0, 0.975, 0.92) * star * uOpacity * 0.9;
+
+     float vig = smoothstep(1.15, 0.25, length(uv - 0.5));
+     float alpha = clamp(clouds * uOpacity * vig + star * uOpacity * 0.85 * vig, 0.0, 1.0);
+     gl_FragColor = vec4(col, alpha);
+   }
 `;
 
 export function ParticleField({
@@ -116,9 +130,9 @@ export function ParticleField({
         uTime,
         uAspect,
         uColor1: { value: dark ? new THREE.Color("#6366f1") : new THREE.Color("#5a5df0") },
-        uColor2: { value: dark ? new THREE.Color("#22d3ee") : new THREE.Color("#0e7490") },
+        uColor2: { value: dark ? new THREE.Color("#38bdf8") : new THREE.Color("#0e7490") },
         uColor3: { value: dark ? new THREE.Color("#a855f7") : new THREE.Color("#7c3aed") },
-        uColor4: { value: dark ? new THREE.Color("#e879f9") : new THREE.Color("#c084fc") },
+        uColor4: { value: dark ? new THREE.Color("#f472b6") : new THREE.Color("#c084fc") },
         uOpacity: { value: dark ? 0.5 : 0.32 },
       },
       transparent: true,

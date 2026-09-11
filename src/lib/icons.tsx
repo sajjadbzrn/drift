@@ -72,6 +72,14 @@ export const RefreshIcon = (p: P) => (
   </svg>
 );
 
+export const InfoIcon = (p: P) => (
+  <svg {...base(p)}>
+    <circle cx="12" cy="12" r="8" />
+    <path d="M12 6.6v2.8" />
+    <circle cx="12" cy="15.7" r="1.3" />
+  </svg>
+);
+
 export const TrashIcon = (p: P) => (
   <svg {...base(p)}>
     <path d="M4 7h16" />

@@ -109,6 +109,13 @@ pub struct DownloadInfo {
     /// on top. Defaults to 0 for entries saved by older versions.
     #[serde(default)]
     pub priority: i64,
+    /// ETag of the remote file, captured from the first response. Re-checked
+    /// before resuming so a changed remote never produces a corrupt merge.
+    #[serde(default)]
+    pub etag: Option<String>,
+    /// Last-Modified of the remote file, same purpose as `etag`.
+    #[serde(default)]
+    pub last_modified: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -156,6 +163,15 @@ pub struct AppSettings {
     /// Rules that map extensions/MIME types to subfolders.
     #[serde(default)]
     pub category_rules: Vec<CategoryRule>,
+    /// Parallel connections per segmented download (1..=8). Kept separate from
+    /// `max_concurrent` so a user downloading one huge file still gets full
+    /// segment parallelism (previously max_concurrent * 2 capped it).
+    #[serde(default)]
+    pub max_connections: usize,
+    /// Auto-remove completed entries older than N days (0 = never). Keeps
+    /// downloads.json and the list small on long-lived installs.
+    #[serde(default)]
+    pub auto_clean_days: u32,
 }
 
 impl Default for AppSettings {
@@ -179,6 +195,8 @@ impl Default for AppSettings {
             proxy_url: String::new(),
             auto_categorize: false,
             category_rules: default_category_rules(),
+            max_connections: 8,
+            auto_clean_days: 0,
         }
     }
 }

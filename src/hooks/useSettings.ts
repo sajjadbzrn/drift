@@ -29,6 +29,8 @@ const DEFAULTS: AppSettings = {
     { pattern: "exe,msi,dmg,appimage,apk", folder: "Apps" },
     { pattern: "iso,img", folder: "Disk Images" },
   ],
+  maxConnections: 8,
+  autoCleanDays: 0,
 };
 
 export function useSettings() {

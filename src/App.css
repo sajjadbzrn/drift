@@ -63,6 +63,12 @@
   color-scheme: dark;
 }
 
+:root {
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+}
+
 :root:lang(fa) {
   --font-sans: "IranYekan", "Vazirmatn Variable", -apple-system, "Segoe UI", Roboto, sans-serif;
 }
@@ -137,9 +143,13 @@ button {
 }
 
 button:focus-visible,
-input:focus-visible {
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+a:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
 input {
@@ -199,9 +209,9 @@ input {
   z-index: 0;
   background-image: radial-gradient(var(--border-strong) 1px, transparent 1px);
   background-size: 26px 26px;
-  opacity: 0.16;
-  -webkit-mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.5), transparent 55%);
-  mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.5), transparent 55%);
+  opacity: 0.09;
+  -webkit-mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.45), transparent 55%);
+  mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.45), transparent 55%);
 }
 
 /* slow-drifting aurora blobs behind the content */
@@ -1191,25 +1201,23 @@ input {
 }
 
 .card:hover {
-  border-color: color-mix(in srgb, var(--kind, var(--accent)) 42%, var(--border));
-  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--kind, var(--accent)) 40%, var(--border));
+  transform: translateY(-1px);
   box-shadow:
-    0 16px 40px rgba(0, 0, 0, 0.22),
-    0 0 0 1px color-mix(in srgb, var(--kind, var(--accent)) 10%, transparent),
-    0 0 26px color-mix(in srgb, var(--kind, var(--accent)) 7%, transparent);
+    0 10px 30px rgba(0, 0, 0, 0.16),
+    0 0 0 1px color-mix(in srgb, var(--kind, var(--accent)) 8%, transparent);
 }
 
 .card:hover::before {
   opacity: 1;
-  transform: scaleY(1.15);
+  transform: scaleY(1.1);
   transform-origin: top;
 }
 
 :root[data-theme="light"] .card:hover {
   box-shadow:
-    0 14px 36px rgba(15, 23, 42, 0.1),
-    0 0 0 1px color-mix(in srgb, var(--kind, var(--accent)) 10%, transparent),
-    0 0 22px color-mix(in srgb, var(--kind, var(--accent)) 6%, transparent);
+    0 8px 26px rgba(15, 23, 42, 0.08),
+    0 0 0 1px color-mix(in srgb, var(--kind, var(--accent)) 8%, transparent);
 }
 
 .card-failed {
@@ -1590,9 +1598,9 @@ input {
 
 .empty-icon {
   position: relative;
-  width: 78px;
-  height: 78px;
-  border-radius: 24px;
+  width: 76px;
+  height: 76px;
+  border-radius: 22px;
   display: grid;
   place-items: center;
   color: var(--text-3);
@@ -1603,9 +1611,9 @@ input {
   margin-bottom: 12px;
   box-shadow:
     var(--shadow-card),
-    0 0 0 8px color-mix(in srgb, var(--accent) 6%, transparent),
-    0 0 28px color-mix(in srgb, var(--accent) 12%, transparent);
-  animation: floaty 5.5s ease-in-out infinite, markGlow 4s ease-in-out infinite;
+    0 0 0 1px color-mix(in srgb, var(--accent) 16%, transparent),
+    0 0 18px color-mix(in srgb, var(--accent) 9%, transparent);
+  animation: floaty 5.5s ease-in-out infinite;
 }
 
 .empty-logo {
@@ -3119,4 +3127,367 @@ input {
   margin-top: 12px;
 }
 
+/* ============================================================
+   details drawer
+   ============================================================ */
+.drawer-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(4, 6, 11, 0.4);
+  z-index: 60;
+}
 
+.drawer {
+  position: fixed;
+  inset-block: 0;
+  inset-inline-end: 0;
+  width: min(400px, 92vw);
+  height: 100%;
+  background: var(--surface);
+  border-inline-start: 1px solid var(--border-strong);
+  box-shadow: var(--shadow-pop);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+.drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.drawer-title {
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.drawer-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 20px 20px 28px;
+}
+
+.detail-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.detail-label {
+  flex: 0 0 auto;
+  font-size: 12px;
+  color: var(--text-dim);
+  min-width: 96px;
+}
+
+.detail-value {
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+  color: var(--text);
+  word-break: break-word;
+}
+
+.detail-dim {
+  color: var(--text-3);
+  font-size: 11.5px;
+}
+
+.detail-url {
+  font-family: "JetBrains Mono", ui-monospace, Menlo, monospace;
+  font-size: 12px;
+  color: var(--accent-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.detail-hash {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ok);
+}
+
+.detail-error {
+  font-size: 12px;
+  color: var(--err);
+  background: var(--err-soft);
+  border: 1px solid color-mix(in srgb, var(--err) 22%, transparent);
+  border-radius: 10px;
+  padding: 9px 12px;
+  word-break: break-word;
+}
+
+.drawer-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.detail-segments {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--border);
+  padding-top: 4px;
+}
+
+.segment-lanes {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.segment-lane {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.segment-lane-num {
+  flex: 0 0 auto;
+  font-family: "JetBrains Mono", ui-monospace, Menlo, monospace;
+  font-size: 11px;
+  color: var(--text-3);
+  width: 22px;
+  text-align: end;
+}
+
+.segment-lane-track {
+  flex: 1;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  overflow: hidden;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.28);
+}
+
+.segment-lane-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #6366f1, #8b5cf6 45%, #22d3ee);
+  transition: width 0.25s ease;
+}
+
+/* ============================================================
+   multi-segment progress bar (parallel connections)
+   ============================================================ */
+.card-bar-multi {
+  display: flex;
+  gap: 2px;
+  height: 8px;
+}
+
+.card-bar-seg {
+  position: relative;
+  height: 100%;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--surface-3);
+  min-width: 2px;
+}
+
+.card-bar-seg-fill {
+  position: relative;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #6366f1, #8b5cf6 45%, #22d3ee, #8b5cf6 70%, #6366f1);
+  background-size: 240% 100%;
+  animation: barFlow 4s linear infinite;
+  transition: width 0.25s ease;
+}
+
+/* ============================================================
+   compact list view
+   ============================================================ */
+.list-compact {
+  gap: 6px;
+}
+
+.card-compact {
+  padding: 9px 12px;
+  border-radius: 13px;
+}
+
+.card-compact .card-icon {
+  width: 36px;
+  height: 36px;
+}
+
+.card-compact .card-name {
+  font-size: 13px;
+}
+
+.card-compact .card-chips .badge {
+  padding: 2px 8px;
+  font-size: 10.5px;
+}
+
+.card-compact .card-bar,
+.card-compact .card-meta,
+.card-compact .card-error {
+  display: none;
+}
+
+.card-compact .card-actions {
+  transform: none;
+  opacity: 1;
+}
+
+/* ============================================================
+   sort selector (page header)
+   ============================================================ */
+.sort-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.sort-trigger {
+  height: 38px;
+  padding: 0 12px;
+  border-radius: 11px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, color 0.15s, box-shadow 0.15s;
+}
+
+.sort-trigger:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-2);
+}
+
+.sort-trigger:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.sort-trigger[aria-expanded="true"] {
+  border-color: var(--accent);
+  background: var(--surface-2);
+  box-shadow: var(--input-glow);
+}
+
+.sort-trigger-prefix {
+  color: var(--text-3);
+}
+
+.sort-trigger-value {
+  color: var(--text);
+}
+
+.sort-trigger svg {
+  flex: 0 0 auto;
+  color: var(--text-3);
+  transition: transform 0.18s;
+}
+
+.sort-trigger[aria-expanded="true"] svg {
+  transform: rotate(180deg);
+}
+
+.sort-menu {
+  position: fixed;
+  z-index: 80;
+  min-width: 172px;
+  padding: 6px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface) 90%, transparent);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow-pop);
+  backdrop-filter: blur(20px) saturate(1.5);
+  animation: pop 0.14s cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
+}
+
+.sort-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 11px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-2);
+  text-align: start;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+
+.sort-item:hover {
+  background: var(--surface-3);
+  color: var(--text);
+}
+
+.sort-item svg {
+  flex: 0 0 auto;
+  color: var(--accent);
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+
+.sort-item-on {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.sort-item-on svg {
+  opacity: 1;
+}
+
+/* --text-dim is used by the preview modal styles; define it for both themes so
+   those labels resolve to a real color instead of inheriting. */
+:root,
+:root[data-theme="dark"] {
+  --text-dim: var(--text-3);
+}
+
+:root[data-theme="light"] {
+  --text-dim: var(--text-3);
+}
+
+/* ============================================================
+   ✦ theme transition — minimal blur crossfade
+   ============================================================ */
+
+body {
+  transition:
+    filter 160ms var(--ease-out),
+    background-color 200ms var(--ease-out),
+    color 200ms var(--ease-out);
+}
+
+body.theme-switching {
+  filter: blur(3px) brightness(0.92);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body {
+    transition: background-color 160ms ease, color 160ms ease;
+  }
+  body.theme-switching {
+    filter: none;
+  }
+}

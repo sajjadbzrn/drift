@@ -17,7 +17,9 @@ import { useUpdater } from "./hooks/useUpdater";
 import { Titlebar } from "./components/Titlebar";
 import { Sidebar } from "./components/Sidebar";
 import { NewDownloadBar } from "./components/NewDownloadBar";
-import { DownloadList } from "./components/DownloadList";
+import { DownloadList, type SortMode } from "./components/DownloadList";
+import { DetailsDrawer } from "./components/DetailsDrawer";
+import { SortMenu } from "./components/SortMenu";
 import { SettingsModal } from "./components/SettingsModal";
 import { ContextMenu, type MenuItem } from "./components/ContextMenu";
 import { SpeedLimitModal } from "./components/SpeedLimitModal";
@@ -32,6 +34,7 @@ import {
   CopyIcon,
   ExternalIcon,
   FolderIcon,
+  GridIcon,
   PauseIcon,
   PlayIcon,
   RefreshIcon,
@@ -79,6 +82,12 @@ function App() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [limitTarget, setLimitTarget] = useState<DownloadInfo | null>(null);
   const [batchOpen, setBatchOpen] = useState(false);
+  /** List ordering: "queue" keeps the priority order, others re-sort a copy. */
+  const [sort, setSort] = useState<SortMode>("queue");
+  /** Compact rows show denser cards (toggle in the page header). */
+  const [compact, setCompact] = useState(false);
+  /** Download currently shown in the details drawer (null = closed). */
+  const [detailsTarget, setDetailsTarget] = useState<DownloadInfo | null>(null);
   const clipboard = useClipboard(true);
   const [peakSpeed, setPeakSpeed] = useState(0);
   const updater = useUpdater();
@@ -88,6 +97,8 @@ function App() {
   /** Downloads pending removal — show undo toast, delete after 6s. */
   const pendingRemove = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const [pendingRemoveIds, setPendingRemoveIds] = useState<Set<string>>(new Set());
+  /** Skip the blur transition on the very first theme resolution. */
+  const themeInitialRef = useRef(true);
 
   const t = useMemo(() => makeT(settings.language), [settings.language]);
 
@@ -96,6 +107,14 @@ function App() {
 
   useEffect(() => {
     document.documentElement.dataset.theme = resolvedTheme;
+    // Brief blur crossfade on every theme change except the first render.
+    if (themeInitialRef.current) {
+      themeInitialRef.current = false;
+      return;
+    }
+    document.body.classList.add("theme-switching");
+    const id = setTimeout(() => document.body.classList.remove("theme-switching"), 180);
+    return () => clearTimeout(id);
   }, [resolvedTheme]);
 
   // Apply language: <html lang>, text direction, and number localization.
@@ -486,6 +505,8 @@ function App() {
     [notify, t],
   );
 
+  const onOpenDetails = useCallback((d: DownloadInfo) => setDetailsTarget(d), []);
+
   const onOpenFolder = useCallback(
     async (d: DownloadInfo) => {
       const now = Date.now();
@@ -680,6 +701,26 @@ function App() {
                       spellCheck={false}
                     />
                   </div>
+                  <SortMenu
+                    value={sort}
+                    ariaLabel={t("sortBy")}
+                    options={[
+                      { value: "queue", label: t("sortQueue") },
+                      { value: "date", label: t("sortDate") },
+                      { value: "size", label: t("sortSize") },
+                      { value: "speed", label: t("sortSpeed") },
+                    ]}
+                    onSort={(v) => setSort(v as SortMode)}
+                  />
+                  <button
+                    className="icon-btn"
+                    onClick={() => setCompact(!compact)}
+                    title={compact ? t("fullView") : t("compactView")}
+                    aria-label={compact ? t("fullView") : t("compactView")}
+                    aria-pressed={compact}
+                  >
+                    <GridIcon width={16} height={16} />
+                  </button>
                 </div>
               </header>
 
@@ -769,6 +810,9 @@ function App() {
                 onOpenFile={onOpenFile}
                 onOpenFolder={onOpenFolder}
                 onCopy={onCopy}
+                onOpenDetails={onOpenDetails}
+                compact={compact}
+                sort={sort}
               />
             </div>
           </main>
@@ -802,6 +846,7 @@ function App() {
             }}
           />
         )}
+        <DetailsDrawer d={detailsTarget} onClose={() => setDetailsTarget(null)} onCopy={onCopy} />
         <ToastStack toasts={toasts} onDismiss={(id) => dismissToast(setToasts, id)} />
       </div>
     </I18nProvider>

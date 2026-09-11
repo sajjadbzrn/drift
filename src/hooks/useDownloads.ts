@@ -8,11 +8,10 @@ export function useDownloads() {
 
   useEffect(() => {
     let disposed = false;
-    let unlist: (() => void) | null = null;
-    let unprog: (() => void) | null = null;
+    const unsubs: (() => void)[] = [];
 
     (async () => {
-      const [l, p] = await Promise.all([
+      const [l, p, b] = await Promise.all([
         listen<DownloadInfo[]>(EVENTS.list, (e) => {
           if (!disposed) setDownloads(e.payload);
         }),
@@ -35,14 +34,36 @@ export function useDownloads() {
             return updated;
           });
         }),
+        // Batched progress from the backend pump: one event every 200ms
+        // carrying every download whose bytes/status changed. This replaces
+        // the old per-worker event storm (~7 IPC round-trips/s per download).
+        listen<DownloadInfo[]>(EVENTS.progressBatch, (e) => {
+          if (disposed) return;
+          const batch = e.payload;
+          if (!batch.length) return;
+          setDownloads((prev) => {
+            let list = prev;
+            for (const next of batch) {
+              const idx = list.findIndex((d) => d.id === next.id);
+              if (idx === -1) {
+                list = [...list, next];
+                list.sort((a, b) => a.priority - b.priority || b.createdAt - a.createdAt);
+                continue;
+              }
+              list = list.slice();
+              list[idx] = next;
+            }
+            return list === prev ? prev : list;
+          });
+        }),
       ]);
       if (disposed) {
         l();
         p();
+        b();
         return;
       }
-      unlist = l;
-      unprog = p;
+      unsubs.push(l, p, b);
       try {
         const initial = await api.getDownloads();
         if (!disposed) setDownloads(initial);
@@ -53,8 +74,7 @@ export function useDownloads() {
 
     return () => {
       disposed = true;
-      unlist?.();
-      unprog?.();
+      for (const u of unsubs) u();
     };
   }, []);
 
