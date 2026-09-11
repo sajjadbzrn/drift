@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useI18n } from "../lib/i18n";
 
@@ -37,7 +37,7 @@ function CloseIcon() {
   );
 }
 
-export function Titlebar() {
+export const Titlebar = memo(function Titlebar() {
   const t = useI18n();
   const [maximized, setMaximized] = useState(false);
 
@@ -136,9 +136,16 @@ export function Titlebar() {
         </div>
       </div>
       <div className="titlebar-right" onMouseDown={onDragMouseDown}>
-        <img className="titlebar-logo" src="/drift.png" alt="drift" draggable={false} />
+        <img
+          className="titlebar-logo"
+          src="/drift.png"
+          alt="drift"
+          width={20}
+          height={20}
+          draggable={false}
+        />
         <span className="titlebar-name">drift</span>
       </div>
     </header>
   );
-}
+});

@@ -42,8 +42,12 @@
   --border-strong: rgba(148, 163, 184, 0.26);
   --text: #e9ecf5;
   --text-2: #a2a9bd;
-  --text-3: #707a95;
+  --text-3: #8e96ab;
+  --text-dim: var(--text-3);
   --accent: #6366f1;
+  /* Indigo stays a fill/ring colour on dark; this lighter step is the one that
+     carries indigo as *text* at 4.5:1 or better (measured, worst surface). */
+  --accent-text: #8b8ef5;
   --accent-2: #22d3ee;
   --accent-grad: linear-gradient(135deg, #6366f1, #22d3ee);
   --accent-grad-strong: linear-gradient(135deg, #6366f1, #4f46e5 55%, #0ea5c7);
@@ -78,18 +82,20 @@
   --border-strong: rgba(15, 23, 42, 0.2);
   --text: #131729;
   --text-2: #4d5568;
-  --text-3: #8b92a8;
-  --accent: #5a5df0;
-  --accent-2: #0891b2;
+  --text-3: #5f6675;
+  --text-dim: var(--text-3);
+  --accent: #4f46e5;
+  --accent-text: #4f46e5;
+  --accent-2: #0e7490;
   --accent-grad: linear-gradient(135deg, #6366f1, #06b6d4);
   --accent-grad-strong: linear-gradient(135deg, #5a5df0, #4f46e5 55%, #0891b2);
   --accent-soft: rgba(99, 102, 241, 0.11);
   --accent-soft-2: rgba(6, 182, 212, 0.11);
-  --ok: #10b981;
+  --ok: #047857;
   --ok-soft: rgba(16, 185, 129, 0.12);
-  --warn: #d97706;
+  --warn: #9a5b06;
   --warn-soft: rgba(217, 119, 6, 0.12);
-  --err: #dc2626;
+  --err: #b91c1c;
   --err-soft: rgba(220, 38, 38, 0.1);
   --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.05), 0 10px 32px rgba(15, 23, 42, 0.08);
   --shadow-pop: 0 24px 64px rgba(15, 23, 42, 0.2);
@@ -199,22 +205,9 @@ input {
   z-index: 0;
   background-image: radial-gradient(var(--border-strong) 1px, transparent 1px);
   background-size: 26px 26px;
-  opacity: 0.16;
+  opacity: 0.1;
   -webkit-mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.5), transparent 55%);
   mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.5), transparent 55%);
-}
-
-/* slow-drifting aurora blobs behind the content */
-.app::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  z-index: 0;
-  background:
-    radial-gradient(560px 420px at 18% 14%, var(--bg-glow-1), transparent 62%),
-    radial-gradient(520px 400px at 84% 78%, var(--bg-glow-2), transparent 60%);
-  animation: aurora 16s ease-in-out infinite alternate;
 }
 
 .app-body {
@@ -379,20 +372,14 @@ input {
   font-size: 17px;
   font-weight: 700;
   letter-spacing: -0.02em;
-  background: linear-gradient(120deg, var(--text), var(--text) 60%, var(--accent-2));
-  background-size: 220% auto;
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  animation: textFlow 8s ease-in-out infinite alternate;
+  color: var(--text);
 }
 
 .brand-tag {
-  font-size: 10.5px;
+  font-size: 11.5px;
   font-weight: 500;
   color: var(--text-3);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0;
 }
 
 .nav {
@@ -402,10 +389,9 @@ input {
 }
 
 .nav-label {
-  font-size: 10.5px;
+  font-size: 11.5px;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
+  letter-spacing: 0;
   color: var(--text-3);
   padding: 0 10px 8px;
 }
@@ -443,7 +429,7 @@ input {
 }
 
 .nav-item-active svg {
-  color: var(--accent);
+  color: var(--accent-text);
   opacity: 1;
   filter: drop-shadow(0 0 6px color-mix(in srgb, var(--accent) 60%, transparent));
 }
@@ -485,7 +471,7 @@ input {
 }
 
 .nav-item-active .nav-count {
-  color: var(--accent);
+  color: var(--accent-text);
   background: color-mix(in srgb, var(--accent) 16%, transparent);
 }
 
@@ -518,8 +504,7 @@ input {
   font-size: 11.5px;
   font-weight: 600;
   color: var(--text-2);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0;
 }
 
 .stat-dot {
@@ -535,18 +520,15 @@ input {
   animation: pulse 1.8s ease-in-out infinite;
 }
 
+/* The live throughput readout is the one place the interface raises its voice:
+   real monospaced tabular digits, no animated gradient behind them. */
 .stat-value {
   font-family: "JetBrains Mono Variable", monospace;
   font-size: 19px;
   font-weight: 600;
   letter-spacing: -0.02em;
   font-variant-numeric: tabular-nums;
-  background: linear-gradient(120deg, var(--text), var(--accent-2));
-  background-size: 220% auto;
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  animation: textFlow 9s ease-in-out infinite alternate;
+  color: var(--text);
 }
 
 .stat-sub {
@@ -572,10 +554,9 @@ input {
 }
 
 .stat-mini-label {
-  font-size: 10.5px;
+  font-size: 11.5px;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0;
   color: var(--text-3);
 }
 
@@ -607,11 +588,10 @@ input {
 
 .concurrent-label {
   display: block;
-  font-size: 10.5px;
-  font-weight: 700;
+  font-size: 11.5px;
+  font-weight: 600;
   color: var(--text-3);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0;
   margin-bottom: 8px;
 }
 
@@ -769,12 +749,8 @@ input {
   font-size: 24px;
   font-weight: 700;
   letter-spacing: -0.03em;
-  background: linear-gradient(120deg, var(--text), var(--text) 55%, var(--accent-2));
-  background-size: 240% auto;
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  animation: textFlow 10s ease-in-out infinite alternate;
+  color: var(--text);
+  text-wrap: balance;
 }
 
 .page-count {
@@ -798,7 +774,7 @@ input {
 }
 
 .search-wrap:focus-within svg {
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 .search-input {
@@ -851,7 +827,7 @@ input {
   border-radius: 9px;
   display: grid;
   place-items: center;
-  color: var(--accent);
+  color: var(--accent-text);
   background: color-mix(in srgb, var(--accent) 14%, transparent);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent);
 }
@@ -885,7 +861,7 @@ input {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  animation: rise 0.3s ease both, borderFlow 14s ease-in-out infinite alternate;
+  animation: rise 0.3s ease both;
   background:
     linear-gradient(var(--surface), var(--surface)) padding-box,
     linear-gradient(150deg, color-mix(in srgb, var(--accent) 26%, transparent), var(--border) 45%, color-mix(in srgb, var(--accent-2) 22%, transparent)) border-box;
@@ -1067,19 +1043,6 @@ input {
   box-shadow: 0 6px 18px rgba(99, 102, 241, 0.38), inset 0 1px 0 rgba(255, 255, 255, 0.2);
 }
 
-.btn-primary::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(110deg,
-      transparent 32%,
-      rgba(255, 255, 255, 0.24) 50%,
-      transparent 68%);
-  transform: translateX(-120%);
-  animation: sheen 3.4s ease-in-out infinite;
-  pointer-events: none;
-}
-
 .btn-primary:hover {
   filter: brightness(1.08);
   box-shadow: 0 8px 26px rgba(99, 102, 241, 0.48), inset 0 1px 0 rgba(255, 255, 255, 0.24);
@@ -1132,7 +1095,7 @@ input {
 
 .folder-chip svg {
   flex: 0 0 auto;
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 .folder-path {
@@ -1145,7 +1108,7 @@ input {
 
 .folder-change {
   font-weight: 600;
-  color: var(--accent);
+  color: var(--accent-text);
   margin-left: 2px;
 }
 
@@ -1186,17 +1149,16 @@ input {
   width: 3px;
   border-radius: 0 4px 4px 0;
   background: linear-gradient(to bottom, var(--kind, var(--accent)), color-mix(in srgb, var(--kind, var(--accent)) 18%, transparent) 85%);
-  opacity: 0.5;
+  opacity: 0.4;
   transition: opacity 0.18s, transform 0.18s;
 }
 
 .card:hover {
-  border-color: color-mix(in srgb, var(--kind, var(--accent)) 42%, var(--border));
+  border-color: color-mix(in srgb, var(--kind, var(--accent)) 30%, var(--border));
   transform: translateY(-2px);
   box-shadow:
     0 16px 40px rgba(0, 0, 0, 0.22),
-    0 0 0 1px color-mix(in srgb, var(--kind, var(--accent)) 10%, transparent),
-    0 0 26px color-mix(in srgb, var(--kind, var(--accent)) 7%, transparent);
+    0 0 0 1px color-mix(in srgb, var(--kind, var(--accent)) 8%, transparent);
 }
 
 .card:hover::before {
@@ -1359,22 +1321,25 @@ input {
   height: 100%;
   border-radius: 999px;
   overflow: hidden;
-  background: linear-gradient(90deg, #6366f1, #8b5cf6 45%, #22d3ee, #8b5cf6 70%, #6366f1);
-  background-size: 240% 100%;
-  animation: barFlow 4s linear infinite;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
   transition: width 0.3s ease;
-  box-shadow: 0 0 12px rgba(99, 102, 241, 0.45);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 38%, transparent);
 }
 
-/* shimmer sweep across the active progress bar */
+/* Sheen is reserved for transfers that are actually moving. It is a transform
+   animation (compositor-friendly) and only runs on .card-bar-active, so a
+   paused or finished card costs nothing per frame. */
 .card-bar-fill::after {
   content: "";
   position: absolute;
   inset: 0;
-  background: linear-gradient(110deg, transparent 30%, rgba(255, 255, 255, 0.32) 50%, transparent 70%);
+  background: linear-gradient(110deg, transparent 30%, rgba(255, 255, 255, 0.28) 50%, transparent 70%);
   transform: translateX(-100%);
-  animation: barShimmer 2.4s ease-in-out infinite;
   pointer-events: none;
+}
+
+.card-bar-active::after {
+  animation: barShimmer 2.4s ease-in-out infinite;
 }
 
 .card-bar-indet {
@@ -1424,9 +1389,15 @@ input {
   color: var(--text-3);
 }
 
+/* Progress share sits at the end of the byte pair behind a hairline rule,
+   which reads cleaner than the dot separator it replaces. */
 .meta-pct {
+  margin-inline-start: 8px;
+  padding-inline-start: 8px;
+  border-inline-start: 1px solid var(--border-strong);
   font-weight: 600;
   color: var(--text);
+  font-variant-numeric: tabular-nums;
 }
 
 .meta-speed {
@@ -1605,7 +1576,6 @@ input {
     var(--shadow-card),
     0 0 0 8px color-mix(in srgb, var(--accent) 6%, transparent),
     0 0 28px color-mix(in srgb, var(--accent) 12%, transparent);
-  animation: floaty 5.5s ease-in-out infinite, markGlow 4s ease-in-out infinite;
 }
 
 .empty-logo {
@@ -1661,7 +1631,7 @@ input {
     linear-gradient(160deg, color-mix(in srgb, var(--accent) 26%, transparent), var(--border) 40%, transparent) border-box;
   border: 1px solid transparent;
   box-shadow: var(--shadow-pop);
-  animation: pop 0.22s cubic-bezier(0.2, 0.9, 0.3, 1.2) both, borderFlow 14s ease-in-out infinite alternate;
+  animation: pop 0.22s cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
 }
 
 .modal-head {
@@ -1745,23 +1715,11 @@ input {
 
 .section-label {
   display: block;
-  font-size: 10.5px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: var(--text-3);
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: var(--text-2);
   margin-bottom: 10px;
-}
-
-.section-label::before {
-  content: "";
-  display: inline-block;
-  width: 3px;
-  height: 10px;
-  border-radius: 2px;
-  margin-right: 7px;
-  background: var(--accent-grad);
-  vertical-align: -1px;
 }
 
 .segmented {
@@ -2124,7 +2082,7 @@ input {
 }
 
 .toast-info .toast-icon {
-  color: var(--accent);
+  color: var(--accent-text);
   background: var(--accent-soft);
 }
 
@@ -2234,18 +2192,6 @@ input {
   }
 }
 
-@keyframes aurora {
-  from {
-    transform: translate3d(0, 0, 0) scale(1);
-    opacity: 0.45;
-  }
-
-  to {
-    transform: translate3d(-26px, 18px, 0) scale(1.1);
-    opacity: 0.75;
-  }
-}
-
 @keyframes barShimmer {
   0% {
     transform: translateX(-100%);
@@ -2284,17 +2230,6 @@ input {
 @keyframes spin {
   to {
     transform: rotate(360deg);
-  }
-}
-
-@keyframes sheen {
-  0% {
-    transform: translateX(-120%);
-  }
-
-  55%,
-  100% {
-    transform: translateX(120%);
   }
 }
 
@@ -2391,11 +2326,10 @@ input {
 }
 
 .update-notes-label {
-  font-size: 10.5px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-3);
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0;
+  color: var(--text-2);
 }
 
 .update-notes-text {
@@ -2468,7 +2402,7 @@ input {
 .selection-count {
   font-size: 12.5px;
   font-weight: 700;
-  color: var(--accent);
+  color: var(--accent-text);
   white-space: nowrap;
 }
 
@@ -2570,14 +2504,6 @@ input {
   transform: translateX(-2px);
 }
 
-/* sheen shimmer runs left→right regardless of direction */
-[dir="rtl"] .btn-primary::after {
-  background: linear-gradient(110deg,
-      transparent 32%,
-      rgba(255, 255, 255, 0.24) 50%,
-      transparent 68%);
-}
-
 /* ============================================================
    browser integration section (settings)
    ============================================================ */
@@ -2671,7 +2597,7 @@ input {
   border-radius: inherit;
   pointer-events: none;
   background: radial-gradient(340px circle at var(--mx, 50%) var(--my, 50%),
-      color-mix(in srgb, var(--kind, var(--accent)) 15%, transparent),
+      color-mix(in srgb, var(--kind, var(--accent)) 10%, transparent),
       transparent 62%);
   opacity: 0;
   transition: opacity 0.3s ease;
@@ -2710,12 +2636,7 @@ input {
 }
 
 .download-bar {
-  animation: rise 0.35s ease both, borderFlow 14s ease-in-out infinite alternate;
-}
-
-.stat-card,
-.about-card {
-  animation: borderFlow 14s ease-in-out infinite alternate;
+  animation: rise 0.35s ease both;
 }
 
 /* ---- sidebar brand mark ---- */
@@ -2746,20 +2667,7 @@ input {
   -webkit-user-drag: none;
 }
 
-.brand-mark::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(110deg, transparent 30%, rgba(255, 255, 255, 0.4) 50%, transparent 70%);
-  transform: translateX(-130%);
-  animation: sheen 3.2s ease-in-out infinite;
-  pointer-events: none;
-}
-
 /* ---- micro-interactions ---- */
-.titlebar-logo {
-  animation: logoGlow 4s ease-in-out infinite;
-}
 
 .tl:hover {
   transform: scale(1.12);
@@ -2785,9 +2693,6 @@ input {
   transform: none !important;
 }
 
-.empty-icon {
-  animation: floaty 5.5s ease-in-out infinite;
-}
 
 .selection-bar {
   animation: pop 0.22s cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
@@ -2815,18 +2720,6 @@ input {
   }
 }
 
-@keyframes borderFlow {
-  to {
-    background-position: 200% 50%;
-  }
-}
-
-@keyframes barFlow {
-  to {
-    background-position: -240% 0;
-  }
-}
-
 @keyframes toastIn {
   from {
     opacity: 0;
@@ -2836,45 +2729,6 @@ input {
   to {
     opacity: 1;
     transform: translateY(0) scale(1);
-  }
-}
-
-@keyframes textFlow {
-  to {
-    background-position: 100% 50%;
-  }
-}
-
-@keyframes floaty {
-  0%,
-  100% {
-    transform: translateY(0) rotate(0deg);
-  }
-
-  50% {
-    transform: translateY(-9px) rotate(-1.5deg);
-  }
-}
-
-@keyframes logoGlow {
-  0%,
-  100% {
-    filter: drop-shadow(0 0 5px rgba(99, 102, 241, 0.4));
-  }
-
-  50% {
-    filter: drop-shadow(0 0 12px rgba(99, 102, 241, 0.75)) drop-shadow(0 0 4px rgba(34, 211, 238, 0.5));
-  }
-}
-
-@keyframes markGlow {
-  0%,
-  100% {
-    box-shadow: 0 6px 16px rgba(99, 102, 241, 0.38), inset 0 1px 0 rgba(255, 255, 255, 0.28);
-  }
-
-  50% {
-    box-shadow: 0 6px 26px rgba(99, 102, 241, 0.6), 0 0 18px rgba(34, 211, 238, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.32);
   }
 }
 
@@ -2962,7 +2816,7 @@ input {
    ============================================================ */
 
 .icon-btn-on {
-  color: var(--accent);
+  color: var(--accent-text);
   background: var(--accent-soft);
   border-color: var(--border-strong);
 }
@@ -3083,8 +2937,8 @@ input {
 }
 .dl-stat-label {
   font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  font-weight: 600;
+  letter-spacing: 0;
   color: var(--text-dim);
 }
 .dl-stat-value {
@@ -3117,6 +2971,172 @@ input {
   display: flex;
   justify-content: flex-end;
   margin-top: 12px;
+}
+
+/* ============================================================
+   v0.5 — refinement pass
+   ============================================================ */
+
+/* per-connection progress: one bar per segment of a segmented download */
+.seg-bars {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+  height: 5px;
+  margin-top: -2px;
+}
+
+.seg-bar {
+  flex: 1 1 0;
+  min-width: 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface-3) 86%, transparent);
+  box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.22);
+  overflow: hidden;
+}
+
+.seg-bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  /* One accent for live data: every bar says "this connection is working",
+     and only a finished segment turns green. */
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--accent) 68%, var(--accent-2)),
+    var(--accent-2)
+  );
+  opacity: 0.92;
+  transition: width 0.35s cubic-bezier(0.22, 0.8, 0.3, 1);
+}
+
+.seg-bar-done .seg-bar-fill {
+  background: var(--ok);
+  opacity: 0.8;
+  box-shadow: 0 0 6px color-mix(in srgb, var(--ok) 42%, transparent);
+}
+
+/* paused: show the bytes already on disk without pretending to be active */
+.card-bar-paused {
+  animation: none;
+  filter: saturate(0.62);
+  box-shadow: none;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--accent) 62%, var(--surface-3)),
+    color-mix(in srgb, var(--accent-2) 62%, var(--surface-3))
+  );
+}
+
+.card-bar-paused::after {
+  display: none;
+}
+
+/* --- card polish --------------------------------------------------- */
+.card {
+  border-radius: 18px;
+  padding: 15px 17px;
+  transition:
+    border-color 0.2s,
+    transform 0.2s cubic-bezier(0.22, 0.8, 0.3, 1),
+    box-shadow 0.2s,
+    background-color 0.35s ease;
+}
+
+/* hairline top light so cards read as raised surfaces, not flat blocks */
+.card::after {
+  content: "";
+  position: absolute;
+  inset-inline: 1px;
+  top: 1px;
+  height: 1px;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, #ffffff 10%, transparent),
+    transparent
+  );
+  opacity: 0.7;
+}
+
+.card-name {
+  font-size: 14.5px;
+}
+
+/* selection reads as a soft ring + tint instead of a hard outline */
+.card-selected,
+.card-selected:hover {
+  outline: none;
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 6%, var(--surface));
+  box-shadow:
+    0 0 0 1px var(--accent),
+    0 0 0 4px color-mix(in srgb, var(--accent) 16%, transparent),
+    0 10px 26px rgba(0, 0, 0, 0.26);
+}
+
+/* progress bar: a touch thicker, calmer glow */
+.card-bar {
+  height: 8px;
+  box-shadow:
+    inset 0 1px 2px rgba(0, 0, 0, 0.32),
+    inset 0 0 0 1px color-mix(in srgb, #ffffff 3%, transparent);
+}
+
+.card-bar-fill {
+  box-shadow: 0 0 14px color-mix(in srgb, var(--accent) 38%, transparent);
+}
+
+/* reveal row actions on hover, selection, or keyboard focus */
+.card:hover .card-actions,
+.card-selected .card-actions,
+.card:focus-within .card-actions {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* --- interaction & accessibility ----------------------------------------
+   Findings from the Web Interface Guidelines pass over src/. */
+
+html {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Kill the double-tap zoom delay on every control surface. */
+button,
+a,
+input,
+textarea,
+[role="option"] {
+  touch-action: manipulation;
+}
+
+/* The list is a single tab stop (roving selection via aria-activedescendant),
+   so the focus ring belongs to the listbox itself. */
+.list:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+  border-radius: 18px;
+}
+
+/* Keyboard-driven selection must be visible even without a pointer hovering. */
+.card:focus-within,
+.list:focus-visible .card-selected {
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
+}
+
+/* Modals and overlays own their scrolling; don't chain to the app behind. */
+.overlay,
+.modal-body {
+  overscroll-behavior: contain;
+}
+
+/* Prevent widows in headings and empty-state titles. */
+.page-title h1,
+.empty-title {
+  text-wrap: balance;
 }
 
 

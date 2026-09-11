@@ -96,6 +96,15 @@ function App() {
 
   useEffect(() => {
     document.documentElement.dataset.theme = resolvedTheme;
+    // Keep the window chrome (and the pre-paint shell colour) in step with the
+    // in-app theme, which is independent of the OS preference.
+    let meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
+    if (!meta) {
+      meta = document.createElement("meta");
+      meta.name = "theme-color";
+      document.head.appendChild(meta);
+    }
+    meta.content = resolvedTheme === "light" ? "#f1f2f8" : "#07080d";
   }, [resolvedTheme]);
 
   // Apply language: <html lang>, text direction, and number localization.
@@ -295,6 +304,12 @@ function App() {
     [downloads],
   );
 
+  // Latest queue order for the stable callbacks below. Reading it through a ref
+  // keeps their identities fixed across progress ticks, so memoized cards only
+  // re-render when their own download actually changed.
+  const sortedAllRef = useRef<DownloadInfo[]>(sortedAll);
+  sortedAllRef.current = sortedAll;
+
   const filtered = useMemo(() => {
     let list = sortedAll;
     if (filter === "active")
@@ -360,6 +375,24 @@ function App() {
       }
     },
     [notify],
+  );
+
+  // Stable per-card action handlers (id-based) — see the memoized DownloadCard.
+  const onPause = useCallback(
+    (id: string) => void runAction(() => api.pause(id), ""),
+    [runAction],
+  );
+  const onResume = useCallback(
+    (id: string) => void runAction(() => api.resume(id), ""),
+    [runAction],
+  );
+  const onRetry = useCallback(
+    (id: string) => void runAction(() => api.retry(id), ""),
+    [runAction],
+  );
+  const onCancel = useCallback(
+    (id: string) => void runAction(() => api.cancel(id), ""),
+    [runAction],
   );
 
   const scheduleRemove = useCallback(
@@ -503,14 +536,11 @@ function App() {
     [notify, t],
   );
 
-  const onCardContext = useCallback(
-    (d: DownloadInfo, e: React.MouseEvent) => {
-      e.preventDefault();
-      const index = sortedAll.findIndex((x) => x.id === d.id);
-      setCtx({ x: e.clientX, y: e.clientY, d, index });
-    },
-    [sortedAll],
-  );
+  const onCardContext = useCallback((d: DownloadInfo, e: React.MouseEvent) => {
+    e.preventDefault();
+    const index = sortedAllRef.current.findIndex((x) => x.id === d.id);
+    setCtx({ x: e.clientX, y: e.clientY, d, index });
+  }, []);
 
   const closeCtx = useCallback(() => setCtx(null), []);
 
@@ -549,8 +579,9 @@ function App() {
   const onReorder = useCallback(
     (dragId: string, overId: string) => {
       if (dragId === overId) return;
-      const from = sortedAll.findIndex((d) => d.id === dragId);
-      const to = sortedAll.findIndex((d) => d.id === overId);
+      const list = sortedAllRef.current;
+      const from = list.findIndex((d) => d.id === dragId);
+      const to = list.findIndex((d) => d.id === overId);
       if (from === -1 || to === -1 || from === to) return;
       // The backend inserts at `to` *after* removing the dragged item, so a
       // downward drop shifts the target by one — compensate so dropping "on"
@@ -558,7 +589,7 @@ function App() {
       const target = from < to ? to - 1 : to;
       void runAction(() => api.reorder(dragId, target), "");
     },
-    [sortedAll, runAction],
+    [runAction],
   );
 
   // Keep the keyboard handler's refs in sync with latest callbacks.
@@ -761,10 +792,10 @@ function App() {
                 onSelect={toggleSelect}
                 onReorder={onReorder}
                 onContext={onCardContext}
-                onPause={(id) => void runAction(() => api.pause(id), "")}
-                onResume={(id) => void runAction(() => api.resume(id), "")}
-                onRetry={(id) => void runAction(() => api.retry(id), "")}
-                onCancel={(id) => void runAction(() => api.cancel(id), "")}
+                onPause={onPause}
+                onResume={onResume}
+                onRetry={onRetry}
+                onCancel={onCancel}
                 onRemove={removeDownload}
                 onOpenFile={onOpenFile}
                 onOpenFolder={onOpenFolder}

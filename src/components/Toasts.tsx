@@ -14,9 +14,13 @@ export function ToastStack({
 }) {
   const t = useI18n();
   return (
-    <div className="toasts">
+    <div className="toasts" aria-live="polite" aria-atomic="false">
       {toasts.map((toast) => (
-        <div key={toast.id} className={`toast toast-${toast.kind}`}>
+        <div
+          key={toast.id}
+          className={`toast toast-${toast.kind}`}
+          role={toast.kind === "error" ? "alert" : "status"}
+        >
           <span className="toast-icon">
             {toast.kind === "success" ? (
               <CheckCircleIcon width={15} height={15} />

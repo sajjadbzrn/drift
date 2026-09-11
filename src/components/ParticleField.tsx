@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { memo, useEffect, useRef } from "react";
 import * as THREE from "three";
 
 /**
@@ -74,7 +74,7 @@ const NEB_FRAG = /* glsl */ `
   }
 `;
 
-export function ParticleField({
+export const ParticleField = memo(function ParticleField({
   theme,
 }: {
   theme: "dark" | "light";
@@ -224,4 +224,4 @@ export function ParticleField({
   }, [theme]);
 
   return <div className="particle-field" ref={hostRef} aria-hidden />;
-}
+});

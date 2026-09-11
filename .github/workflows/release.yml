@@ -3,9 +3,9 @@ name: Release
 # Build signed installers/artifacts for Windows and Linux whenever a
 # v* tag is pushed:
 #
-#   bun scripts/bump-version.mjs 0.3.3
-#   git add -A && git commit -m "Release v0.3.3"
-#   git tag v0.3.3 && git push && git push --tags
+#   bun scripts/bump-version.mjs 0.5.0
+#   git add -A && git commit -m "Release v0.5.0"
+#   git tag -a v0.5.0 -m "..." && git push && git push --tags
 #
 # The workflow:
 #   - Windows (nsis)   builds on windows-latest
@@ -13,6 +13,10 @@ name: Release
 # and uploads every installer + its .sig, the browser extension zip, and a
 # single combined latest.json (covering both platforms) to the GitHub
 # release. Users update in place from Settings -> Updates.
+#
+# Release notes are read from CHANGELOG.md rather than hardcoded here, so the
+# published notes can never drift out of sync with the repo's changelog (the
+# previous hardcoded body was still advertising v0.4.x features at v0.5.0).
 
 on:
   push:
@@ -152,6 +156,42 @@ jobs:
             --repo ${{ github.event.repository.name }} \
             --dir dist
 
+      - name: Compose release notes from CHANGELOG.md
+        if: steps.version.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.version.outputs.tag }}"
+          VERSION="${TAG#v}"
+
+          # Everything between this version's "## [x.y.z]" heading and the next
+          # "## [" heading. Exact substring match, so 0.5.0 never matches 0.5.1.
+          awk -v ver="$VERSION" '
+            index($0, "## [" ver "]") == 1 { hit = 1; next }
+            hit && index($0, "## [") == 1 { exit }
+            hit { print }
+          ' CHANGELOG.md | sed '/[^[:space:]]/,$!d' > notes-body.md
+
+          if [ ! -s notes-body.md ]; then
+            echo "WARNING: no CHANGELOG.md section for $VERSION — falling back."
+            printf 'See CHANGELOG.md for what changed in this release.\n' > notes-body.md
+          fi
+
+          {
+            echo "## drift $TAG"
+            echo
+            cat notes-body.md
+            echo
+            echo "### Install"
+            echo
+            echo '- **Windows**: run `drift_*_x64-setup.exe`'
+            echo '- **Linux**: `sudo dpkg -i drift_*_amd64.deb` (or use the AppImage)'
+            echo
+            echo 'Existing installs update in place from *Settings → Updates*.'
+          } > release-notes.md
+
+          echo '----- release notes -----'
+          cat release-notes.md
+
       - name: Upload artifacts to the release
         if: steps.version.outputs.skip != 'true'
         uses: softprops/action-gh-release@v2
@@ -159,17 +199,4 @@ jobs:
           tag_name: ${{ steps.version.outputs.tag }}
           files: |
             dist/*
-          body: |
-            ## drift ${{ steps.version.outputs.tag }}
-
-            A cross-platform release — **drift now ships installers for Windows and Linux**, with in-place auto-update.
-
-            ### Highlights
-            - **Download preview before you start** — paste a link and drift now shows a confirmation with the file's **size**, **type**, and an **estimated download time** based on your live connection speed (measured during the probe). If you've set a speed limit, the estimate accounts for it.
-            - **Toasts that fit** — long filenames in notifications (e.g. "Downloading <name>") now wrap inside the toast instead of spilling out of the box and getting clipped.
-            - **Windows + Linux** — grab the Windows NSIS installer or a Linux `.deb` / `.AppImage` from the assets below.
-            - **Smarter updates** — a single combined updater manifest keeps every platform current from *Settings → Updates*.
-
-            ### Install
-            - **Windows**: run `drift_*_x64-setup.exe`
-            - **Linux**: `sudo dpkg -i drift_*_amd64.deb` (or use the AppImage)
+          body_path: release-notes.md

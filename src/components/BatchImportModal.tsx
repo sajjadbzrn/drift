@@ -106,7 +106,14 @@ export function BatchImportModal({
       <div className="modal modal-narrow" onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
           <div className="modal-head-left">
-            <img className="modal-brand" src="/drift.png" alt="drift" draggable={false} />
+            <img
+              className="modal-brand"
+              src="/drift.png"
+              alt="drift"
+              width={30}
+              height={30}
+              draggable={false}
+            />
             <span className="modal-title">{t("batchImport")}</span>
           </div>
           <button className="icon-btn" onClick={onClose} aria-label={t("close")}>

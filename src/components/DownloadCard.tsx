@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { memo, useEffect, useRef, useState, type ReactNode } from "react";
 import type { DownloadInfo } from "../types";
 import {
   fileKindOf,
@@ -128,6 +128,41 @@ function useSpeedHistory(id: string, speed: number) {
   return store.current.get(id) ?? [];
 }
 
+/**
+ * One slim bar per connection for a segmented download. Each fill is that
+ * segment's share of its own byte range, so a lagging segment is obvious at a
+ * glance. Purely presentational — the values come from the backend's
+ * per-segment progress ticks.
+ */
+function SegmentBars({ d }: { d: DownloadInfo }) {
+  const t = useI18n();
+  return (
+    <div
+      className="seg-bars"
+      role="img"
+      aria-label={t("segmentsLabel", { n: num(d.segments.length) })}
+    >
+      {d.segments.map((s) => {
+        const expected = Math.max(1, s.end - s.start + 1);
+        const pct = Math.max(0, Math.min(100, (s.received / expected) * 100));
+        const done = pct >= 99.95;
+        return (
+          <span
+            className={`seg-bar${done ? " seg-bar-done" : ""}`}
+            key={s.index}
+            title={t("segmentBarTitle", {
+              i: num(s.index + 1),
+              pct: num(Math.floor(pct)),
+            })}
+          >
+            <span className="seg-bar-fill" style={{ width: `${pct}%` }} />
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
 function SpeedSpark({ history }: { history: number[] }) {
   if (history.length < 2) return null;
   const w = 62;
@@ -163,13 +198,13 @@ function SpeedSpark({ history }: { history: number[] }) {
   );
 }
 
-export function DownloadCard({
+export const DownloadCard = memo(function DownloadCard({
   d,
   index,
   queuePos,
   selected,
   onSelect,
-  onDoubleClick,
+  onActivate,
   dragging,
   dropTarget,
   onDragStart,
@@ -190,14 +225,15 @@ export function DownloadCard({
   index?: number;
   queuePos?: number;
   selected?: boolean;
-  onSelect?: (multi: boolean) => void;
-  onDoubleClick?: () => void;
+  /** All handlers are id-based and stable so `memo` can skip untouched cards. */
+  onSelect?: (id: string, multi: boolean) => void;
+  onActivate?: (d: DownloadInfo) => void;
   dragging?: boolean;
   dropTarget?: boolean;
-  onDragStart?: () => void;
+  onDragStart?: (id: string) => void;
   onDragEnd?: () => void;
-  onDragOver?: (e: React.DragEvent<HTMLDivElement>) => void;
-  onDrop?: (e: React.DragEvent<HTMLDivElement>) => void;
+  onDragOver?: (id: string, e: React.DragEvent<HTMLDivElement>) => void;
+  onDrop?: (id: string, e: React.DragEvent<HTMLDivElement>) => void;
   onContext: (d: DownloadInfo, e: React.MouseEvent) => void;
   onPause: (id: string) => void;
   onResume: (id: string) => void;
@@ -244,6 +280,10 @@ export function DownloadCard({
 
   return (
     <div
+      id={`dl-${d.id}`}
+      role="option"
+      aria-selected={!!selected}
+      aria-label={d.filename}
       className={`card${failed ? " card-failed" : ""}${selected ? " card-selected" : ""}${dragging ? " card-dragging" : ""}${dropTarget ? " card-drop-target" : ""}${justDone ? " card-just-done" : ""}`}
       draggable={typeof onDragStart === "function"}
       style={
@@ -257,14 +297,14 @@ export function DownloadCard({
       onClick={(e) => {
         if (onSelect) {
           e.preventDefault();
-          onSelect(e.ctrlKey || e.metaKey || e.shiftKey);
+          onSelect(d.id, e.ctrlKey || e.metaKey || e.shiftKey);
         }
       }}
-      onDoubleClick={onDoubleClick}
-      onDragStart={onDragStart}
-      onDragEnd={onDragEnd}
-      onDragOver={onDragOver}
-      onDrop={onDrop}
+      onDoubleClick={() => onActivate?.(d)}
+      onDragStart={() => onDragStart?.(d.id)}
+      onDragEnd={() => onDragEnd?.()}
+      onDragOver={(e) => onDragOver?.(d.id, e)}
+      onDrop={(e) => onDrop?.(d.id, e)}
     >
       <div
         className="card-icon"
@@ -307,10 +347,14 @@ export function DownloadCard({
 
         <div className="card-bar">
           <div
-            className={`card-bar-fill${percent === null ? " card-bar-indet" : ""}${d.status === "completed" ? " card-bar-done" : ""}`}
+            className={`card-bar-fill${percent === null ? " card-bar-indet" : ""}${d.status === "completed" ? " card-bar-done" : ""}${d.status === "paused" ? " card-bar-paused" : ""}`}
             style={percent !== null ? { width: `${percent}%` } : undefined}
           />
         </div>
+
+        {d.segmented && d.segments.length > 1 && !finished && !failed && (
+          <SegmentBars d={d} />
+        )}
 
         <div className="card-meta">
           <span className="meta-left">
@@ -319,12 +363,12 @@ export function DownloadCard({
                 {formatBytes(d.received)} <span className="meta-dim">{t("of")}</span>{" "}
                 {formatBytes(d.totalSize)}
                 {percent !== null && (
-                  <span className="meta-pct">· {num(Math.floor(percent))}%</span>
+                  <span className="meta-pct">{num(Math.floor(percent))}%</span>
                 )}
               </>
             ) : running ? (
               <>
-                {formatBytes(d.received)} ·{" "}
+                {formatBytes(d.received)}{" "}
                 <span className="meta-dim">{t("determiningSize")}</span>
               </>
             ) : (
@@ -420,4 +464,4 @@ export function DownloadCard({
       </div>
     </div>
   );
-}
+});

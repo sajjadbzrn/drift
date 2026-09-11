@@ -66,6 +66,11 @@ pub struct DownloadEntry {
     pub action: Action,
     /// live per-segment counters (segmented downloads)
     pub seg_recv: Vec<Arc<AtomicU64>>,
+    /// Bytes each segment already had on disk when the current attempt started.
+    /// Per-segment progress is `seg_base + seg_recv`, which keeps the reported
+    /// figure correct across resumed attempts without re-reading the disk on
+    /// every tick (the UI draws one bar per connection from this).
+    pub seg_base: Vec<Arc<AtomicU64>>,
     pub speed_state: Mutex<SpeedState>,
     /// Optional per-download proxy client, built lazily from `info.proxy`.
     pub client_override: Mutex<Option<Client>>,
@@ -232,6 +237,7 @@ impl DownloadManager {
             info: Mutex::new(info),
             action: AtomicU8::new(0),
             seg_recv: (0..n).map(|_| Arc::new(AtomicU64::new(0))).collect(),
+            seg_base: (0..n).map(|_| Arc::new(AtomicU64::new(0))).collect(),
             speed_state: Mutex::new(SpeedState::at(0)),
             client_override: Mutex::new(None),
         });
@@ -451,6 +457,7 @@ impl DownloadManager {
             info: Mutex::new(info),
             action: AtomicU8::new(0),
             seg_recv: (0..nseg).map(|_| Arc::new(AtomicU64::new(0))).collect(),
+            seg_base: (0..nseg).map(|_| Arc::new(AtomicU64::new(0))).collect(),
             speed_state: Mutex::new(SpeedState::at(0)),
             client_override: Mutex::new(None),
         });
@@ -1054,6 +1061,11 @@ impl DownloadManager {
                 if let Some(dest) = info.segments.get_mut(i) {
                     dest.received = seg.received;
                 }
+                // Remember the on-disk offset so the live reporter can add the
+                // per-attempt byte counter without accumulating twice.
+                if let Some(b) = entry.seg_base.get(i) {
+                    b.store(seg.received, Ordering::SeqCst);
+                }
             }
             for c in &entry.seg_recv {
                 c.store(0, Ordering::SeqCst);
@@ -1301,20 +1313,32 @@ impl DownloadManager {
         info.updated_at = now_millis();
     }
 
+    /// Publish live progress for a segmented download. Each segment's reported
+    /// byte count is `seg_base[i] + seg_recv[i]`, so the UI can draw a bar per
+    /// connection and see which segment is lagging. The lock is released before
+    /// `update_speed` (which locks `info` again) to avoid a self-deadlock.
     fn emit_aggregate(&self, entry: &DownloadEntry) {
-        let base: u64 = entry
-            .info
-            .lock()
-            .unwrap()
-            .segments
-            .iter()
-            .map(|s| s.received)
-            .sum();
-        let mut live = 0u64;
-        for c in &entry.seg_recv {
-            live += c.load(Ordering::SeqCst);
-        }
-        self.update_speed(entry, base + live);
+        let total = {
+            let mut info = entry.info.lock().unwrap();
+            let mut total = 0u64;
+            for (i, seg) in info.segments.iter_mut().enumerate() {
+                let base = entry
+                    .seg_base
+                    .get(i)
+                    .map(|c| c.load(Ordering::SeqCst))
+                    .unwrap_or(0);
+                let live = entry
+                    .seg_recv
+                    .get(i)
+                    .map(|c| c.load(Ordering::SeqCst))
+                    .unwrap_or(0);
+                seg.received = (base + live).min(seg.expected_len());
+                total += seg.received;
+            }
+            info.received = total;
+            total
+        };
+        self.update_speed(entry, total);
         self.emit_progress(entry);
     }
 

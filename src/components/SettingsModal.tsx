@@ -166,7 +166,14 @@ export function SettingsModal({
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
           <div className="modal-head-left">
-            <img className="modal-brand" src="/drift.png" alt="drift" draggable={false} />
+            <img
+              className="modal-brand"
+              src="/drift.png"
+              alt="drift"
+              width={30}
+              height={30}
+              draggable={false}
+            />
             <span className="modal-title">{t("settingsTitle")}</span>
           </div>
           <button className="icon-btn" onClick={onClose} aria-label={t("close")}>
@@ -579,6 +586,9 @@ export function SettingsModal({
                 className="creator-avatar"
                 src="https://github.com/sajjadbzrn.png"
                 alt="Sajjad Bzn"
+                width={52}
+                height={52}
+                loading="lazy"
                 draggable={false}
               />
               <div className="creator-info">
@@ -615,6 +625,8 @@ export function SettingsModal({
                 className="about-logo"
                 src="/drift.png"
                 alt="drift"
+                width={44}
+                height={44}
                 draggable={false}
               />
               <div className="about-info">

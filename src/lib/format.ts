@@ -115,18 +115,28 @@ export function fileKindOf(filename: string): FileKind {
   return KIND_BY_EXT[ext] ?? "file";
 }
 
+/**
+ * File-kind accents. The icon already says what the file is, so colour is a
+ * secondary cue — and a different hue for each of the eleven kinds just made
+ * the list look noisy while competing with the live progress bar.
+ *
+ * So: six groups (media / dev / audio+archive / document / executable /
+ * unknown) tuned to a single lightness band (L* 54–58) and verified at 3:1 or
+ * better against both the dark and light surfaces. Saturation is reserved for
+ * things that are actually moving.
+ */
 export const KIND_COLOR: Record<FileKind, string> = {
-  image: "#a78bfa",
-  video: "#f472b6",
-  audio: "#fbbf24",
-  archive: "#fb923c",
-  code: "#22d3ee",
-  doc: "#60a5fa",
-  pdf: "#f87171",
-  app: "#34d399",
-  sheet: "#2dd4bf",
-  slides: "#818cf8",
-  file: "#94a3b8",
+  image: "#6b78ee",
+  video: "#6b78ee",
+  slides: "#6b78ee",
+  code: "#2b93ad",
+  sheet: "#2b93ad",
+  audio: "#b8801f",
+  archive: "#b8801f",
+  doc: "#4d82d6",
+  pdf: "#4d82d6",
+  app: "#2f9e77",
+  file: "#7c8496",
 };
 
 export function looksLikeUrl(text: string): boolean {

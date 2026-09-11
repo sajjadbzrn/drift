@@ -21,6 +21,7 @@ const DICT: Record<Lang, Record<string, Tpl>> = {
     paused: "Paused",
     failed: "Failed",
     downloadsTitle: "Downloads",
+    downloadsListLabel: "Downloads",
     items: (p) => `${p.n} item${Number(p.n) === 1 ? "" : "s"}`,
     clearFinished: "Clear finished",
     searchPlaceholder: "Search…",
@@ -85,6 +86,8 @@ const DICT: Record<Lang, Record<string, Tpl>> = {
     badgeCancelled: "Cancelled",
     badgeFailed: "Failed",
     segmentedTitle: "Multi-connection download",
+    segmentsLabel: (p) => `Downloading over ${p.n} connections`,
+    segmentBarTitle: (p) => `Connection ${p.i}, ${p.pct}%`,
     speedLimitChip: "≤ {v}/s",
     speedLimitChipTitle: "Per-download speed limit",
     queuePosTitle: (p) => `#${p.n} in queue`,
@@ -94,7 +97,7 @@ const DICT: Record<Lang, Record<string, Tpl>> = {
     remaining: (p) => `${p.v} remaining`,
     left: (p) => `${p.v} left`,
     savedOf: (p) => `${p.a} of ${p.b} saved`,
-    resumable: (p) => `Resumable — ${p.v} saved`,
+    resumable: (p) => `Resumable, ${p.v} saved`,
 
     // card actions
     pause: "Pause",
@@ -141,7 +144,7 @@ const DICT: Record<Lang, Record<string, Tpl>> = {
     couldNotCopy: "Could not copy link",
     couldNotOpenFile: "Could not open file",
     couldNotOpenFolder: "Could not open folder",
-    waitFolder: "Opening folder — wait a moment before opening another",
+    waitFolder: "Opening the folder. Wait a moment before opening another one.",
     deleteConfirm: (p) => `Delete "${p.name}" from your disk?`,
     removeTitle: "Remove download",
     removedToast: "Removed {name}",
@@ -237,7 +240,7 @@ const DICT: Record<Lang, Record<string, Tpl>> = {
     updateCheckFailed: "Could not check for updates: {err}",
     updateFailed: "Update failed: {err}",
     updateNoInternet:
-      "No internet connection — check your connection and try again.",
+      "No internet connection. Check your connection and try again.",
     releaseNotes: "Release notes",
     updateToast: (p) => `Update v${p.version} is available`,
 
@@ -308,6 +311,7 @@ const DICT: Record<Lang, Record<string, Tpl>> = {
     paused: "متوقف",
     failed: "ناموفق",
     downloadsTitle: "دانلودها",
+    downloadsListLabel: "دانلودها",
     items: (p) => `${p.n} مورد`,
     clearFinished: "پاک‌کردن موارد کامل",
     searchPlaceholder: "جستجو…",
@@ -372,6 +376,8 @@ const DICT: Record<Lang, Record<string, Tpl>> = {
     badgeCancelled: "لغو شد",
     badgeFailed: "ناموفق",
     segmentedTitle: "دانلود چنداتصالی",
+    segmentsLabel: (p) => `در حال دانلود با ${p.n} اتصال`,
+    segmentBarTitle: (p) => `اتصال ${p.i}، ${p.pct}٪`,
     speedLimitChip: "حداکثر {v}/ث",
     speedLimitChipTitle: "محدودیت سرعت این دانلود",
     of: "از",
@@ -380,7 +386,7 @@ const DICT: Record<Lang, Record<string, Tpl>> = {
     remaining: (p) => `${p.v} مانده`,
     left: (p) => `${p.v} مانده`,
     savedOf: (p) => `${p.a} از ${p.b} ذخیره شد`,
-    resumable: (p) => `قابل ادامه — ${p.v} ذخیره شد`,
+    resumable: (p) => `قابل ادامه، ${p.v} ذخیره شد`,
 
     // card actions
     pause: "توقف",
@@ -427,7 +433,7 @@ const DICT: Record<Lang, Record<string, Tpl>> = {
     couldNotCopy: "کپی لینک ممکن نشد",
     couldNotOpenFile: "باز کردن فایل ممکن نشد",
     couldNotOpenFolder: "باز کردن پوشه ممکن نشد",
-    waitFolder: "در حال باز کردن پوشه — لطفاً کمی صبر کنید",
+    waitFolder: "در حال باز کردن پوشه. کمی صبر کنید.",
     deleteConfirm: (p) => `«${p.name}» از دیسک حذف شود؟`,
     removeTitle: "حذف دانلود",
     removedToast: "حذف شد: {name}",
@@ -519,7 +525,7 @@ const DICT: Record<Lang, Record<string, Tpl>> = {
     updateCheckFailed: "بررسی به‌روزرسانی ممکن نشد: {err}",
     updateFailed: "به‌روزرسانی ناموفق بود: {err}",
     updateNoInternet:
-      "دسترسی به اینترنت وجود ندارد — اتصال خود را بررسی و دوباره تلاش کنید.",
+      "دسترسی به اینترنت وجود ندارد. اتصال خود را بررسی و دوباره تلاش کنید.",
     releaseNotes: "یادداشت‌های نسخه",
     updateToast: (p) => `نسخه ${p.version} در دسترس است`,
 

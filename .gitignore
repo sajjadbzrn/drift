@@ -12,11 +12,22 @@ dist
 dist-ssr
 *.local
 
+# release workflow scratch file (composed from CHANGELOG.md during CI)
+release-notes.md
+
+# TypeScript incremental build caches
+*.tsbuildinfo
+
 # update signing keys (never commit the private key)
 .keys/
 
 # AI assistant planning state
 .mimocode/
+
+# installed agent skills (local tooling, not part of the app)
+.agents/
+.claude/
+skills-lock.json
 
 # Editor directories and files
 .vscode/*
